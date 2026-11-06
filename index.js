@@ -56,7 +56,6 @@ setInterval(() => {
 // ─── STARTUP ──────────────────────────────────────────────────────────────────
 console.log('='.repeat(55));
 console.log('  LordFarhan Bot — Starting up...');
-console.log('  .env location : ' + path.join(__dirname, '.env'));
 console.log('  SESSION_ID set: ' + (!!process.env.SESSION_ID));
 console.log('='.repeat(55));
 // ─────────────────────────────────────────────────────────────────────────────
@@ -209,7 +208,7 @@ async function startXeonBotInc() {
             if (connection === 'connecting') console.log(chalk.yellow('Connecting to WhatsApp...'));
 
             if (connection === 'open') {
-                console.log(chalk.green('Connected! => ' + JSON.stringify(XeonBotInc.user, null, 2)));
+                console.log(chalk.green('Connected to WhatsApp.'));
                 try {
                     const botNumber = XeonBotInc.user.id.split(':')[0] + '@s.whatsapp.net';
                     await XeonBotInc.sendMessage(botNumber, {

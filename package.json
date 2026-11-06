@@ -7,12 +7,12 @@
     "start": "node index.js",
     "start:optimized": "node --max-old-space-size=512 --optimize-for-size --gc-interval=100 index.js",
     "cleanup": "node cleanup.js",
-    "reset-session": "node reset-session.js",
+    "reset-session": "node reset-session.js --confirm",
     "start:clean": "npm run cleanup && npm run start:optimized",
     "start:fresh": "npm run reset-session && npm start",
     "install:panel": "npm install --legacy-peer-deps",
     "install:force": "npm install --force",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node scripts/check-syntax.js",
     "docker:build": "docker build -t lordfarhanbot-md . && docker run -e SESSION_ID=$SESSION_ID lordfarhanbot-md",
     "start:panel": "node index.js",
     "start:pm2": "pm2 start index.js --name LordFarhanBot"
@@ -24,6 +24,7 @@
   "license": "ISC",
   "dependencies": {
     "@adiwajshing/keyed-db": "^0.2.4",
+    "@distube/ytdl-core": "4.16.12",
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@hapi/boom": "^10.0.1",
     "@types/node": "^18.0.6",
@@ -78,6 +79,6 @@
     "jimp": "^1.6.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.19.0"
   }
 }

@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 global.APIs = {
     xteam: 'https://api.xteam.xyz',
@@ -14,13 +15,14 @@ global.APIs = {
     fgmods: 'https://api-fgmods.ddns.net'
 };
 
+// Supply replacement credentials through the deployment's environment or Secrets.
 global.APIKeys = {
-    'https://api.xteam.xyz': 'd90a9e986e18778b',
-    'https://api.lolhuman.xyz': '85faf717d0545d14074659ad',
-    'https://api.neoxr.my.id': 'yourkey',
-    'https://violetics.pw': 'beta',
-    'https://zenzapis.xyz': 'yourkey',
-    'https://api-fgmods.ddns.net': 'fg-dylux'
+    'https://api.xteam.xyz': process.env.XTEAM_API_KEY || '',
+    'https://api.lolhuman.xyz': process.env.LOLHUMAN_API_KEY || '',
+    'https://api.neoxr.my.id': process.env.NEOXR_API_KEY || '',
+    'https://violetics.pw': process.env.VIOLETICS_API_KEY || '',
+    'https://zenzapis.xyz': process.env.ZENZAPIS_API_KEY || '',
+    'https://api-fgmods.ddns.net': process.env.FGMODS_API_KEY || ''
 };
 
 module.exports = {
