@@ -63,27 +63,93 @@ console.log('='.repeat(55));
 // ─── SESSION LOADER ───────────────────────────────────────────────────────────
 // Reads SESSION_ID from .env (format: LordBot<base64_creds_json>),
 // decodes it, and writes session/creds.json so the bot connects without QR.
+
 function loadSessionFromEnv() {
-    const SESSION_ID = process.env.SESSION_ID || '';
-    if (!SESSION_ID) {
-        console.log(chalk.yellow('⚠️  No SESSION_ID found in .env — falling back to QR/pairing code'));
+    const sessionId = String(process.env.SESSION_ID || '').trim();
+
+    if (!sessionId) {
+        console.log('No SESSION_ID found; using normal pairing fallback.');
         return false;
     }
-    if (!SESSION_ID.startsWith('LordBot')) {
-        console.log(chalk.red('❌ SESSION_ID must start with "LordBot" — check your .env file'));
+
+    if (!sessionId.startsWith('LordBot~')) {
+        console.log('Invalid session prefix. Expected LordBot~');
         return false;
     }
+
     try {
-        const encoded = SESSION_ID.replace(/^LordBot/, '');
-        const decoded = Buffer.from(encoded, 'base64').toString('utf-8');
-        JSON.parse(decoded); // validate JSON
-        if (!fs.existsSync('./session')) fs.mkdirSync('./session', { recursive: true });
-        fs.writeFileSync('./session/creds.json', decoded, 'utf-8');
-        console.log(chalk.green('✅ SESSION_ID loaded — connecting without QR code!'));
+        const crypto = require('crypto');
+        const sessionDir = './session';
+        const credsPath = sessionDir + '/creds.json';
+        const pendingPath = sessionDir + '/.lordbot-pending-keys.json';
+        const markerPath = sessionDir + '/.lordbot-session-hash';
+
+        const payload = sessionId.slice('LordBot~'.length).trim();
+        if (!payload) throw new Error('Empty session payload');
+
+        const hash = crypto.createHash('sha256')
+            .update(sessionId).digest('hex');
+
+        if (fs.existsSync(markerPath) && fs.existsSync(credsPath)) {
+            if (fs.readFileSync(markerPath, 'utf8').trim() === hash) {
+                console.log('Existing LordBot session already imported.');
+                return true;
+            }
+        }
+
+        const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+        const decoded = Buffer.from(normalized, 'base64').toString('utf8');
+
+        const parsed = JSON.parse(decoded, (key, value) => {
+            if (value && value.type === 'Buffer' && Array.isArray(value.data))
+                return Buffer.from(value.data);
+            if (value && value.type === 'Uint8Array' && Array.isArray(value.data))
+                return new Uint8Array(value.data);
+            return value;
+        });
+
+        const bundle = parsed.state || parsed.authState ||
+                       parsed.session || parsed;
+
+        const creds = bundle.creds || parsed.creds ||
+                      (bundle.registrationId !== undefined ? bundle : null);
+
+        const keys = bundle.keys || parsed.keys || {};
+
+        if (!creds || typeof creds !== 'object')
+            throw new Error('No Baileys credentials found in session');
+
+        if (creds.registrationId === undefined ||
+            !creds.noiseKey ||
+            !creds.signedIdentityKey ||
+            !creds.signedPreKey) {
+            throw new Error('Incomplete Baileys credentials');
+        }
+
+        if (!keys || typeof keys !== 'object')
+            throw new Error('Invalid Signal keys structure');
+
+        // Preserve the previous authentication directory before replacement.
+        if (fs.existsSync(sessionDir)) {
+            const backupDir = './session.backup-' + Date.now();
+            fs.renameSync(sessionDir, backupDir);
+            console.log('Previous authentication backed up to ' + backupDir);
+        }
+
+        fs.mkdirSync(sessionDir, { recursive: true });
+        fs.writeFileSync(credsPath, JSON.stringify(creds, null, 2));
+        fs.writeFileSync(pendingPath, JSON.stringify({ keys, hash }));
+
+        console.log('LordBot credentials decoded and validated.');
+        console.log('Signal key import will run after Baileys initializes.');
+
+        if (!Object.keys(keys).length)
+            console.log('WARNING: Session contains no Signal keys.');
+
         return true;
+
     } catch (err) {
-        console.log(chalk.red('❌ Failed to decode SESSION_ID: ' + err.message));
-        console.log(chalk.yellow('⚠️  Make sure you copied the full LordBot... string from WhatsApp'));
+        console.log('LordBot session import failed: ' + err.message);
         return false;
     }
 }
@@ -108,6 +174,30 @@ async function startXeonBotInc() {
     try {
         let { version, isLatest } = await fetchLatestBaileysVersion();
         const { state, saveCreds } = await useMultiFileAuthState('./session');
+
+        const pendingKeysPath = './session/.lordbot-pending-keys.json';
+        if (fs.existsSync(pendingKeysPath)) {
+            const pending = JSON.parse(fs.readFileSync(pendingKeysPath, 'utf8'),
+                (key, value) => {
+                    if (value && value.type === 'Buffer' && Array.isArray(value.data))
+                        return Buffer.from(value.data);
+                    if (value && value.type === 'Uint8Array' && Array.isArray(value.data))
+                        return new Uint8Array(value.data);
+                    return value;
+                });
+
+            const importedKeys = pending.keys || {};
+            for (const [type, entries] of Object.entries(importedKeys)) {
+                if (entries && typeof entries === 'object' && !Array.isArray(entries)) {
+                    await state.keys.set(type, entries);
+                }
+            }
+
+            fs.writeFileSync('./session/.lordbot-session-hash', pending.hash);
+            fs.unlinkSync(pendingKeysPath);
+            console.log('LordBot session keys imported into Baileys.');
+        }
+
         const msgRetryCounterCache = new NodeCache();
 
         const XeonBotInc = makeWASocket({
