@@ -332,15 +332,26 @@ async function startXeonBotInc() {
                 console.log(chalk.green('Connected to WhatsApp.'));
                 try {
     const botNumber = XeonBotInc.user.id.split(':')[0] + '@s.whatsapp.net';
-    const caption = `👑 *${botName}* 👑\n\n🔥 *BOT CONNECTED SUCCESSFULLY*\n\n✅ Status: ONLINE\n👑 Owner: *${settings.botOwner}*\n🕒 Timezone: Nairobi, Kenya (EAT)\n⚡ Powered by DARKTECH CLAN NET`;
+    const caption = `👑 *${settings.botName || 'LORD FARHAN MD'}* 👑
+
+🔥 *BOT CONNECTED SUCCESSFULLY*
+
+✅ Status: ONLINE
+👑 Owner: *${settings.botOwner || 'LORD FARHAN'}*
+🕒 Time: Nairobi, Kenya (EAT)
+⚡ Powered by DARKTECH CLAN NET`;
+
     const imagePath = path.join(__dirname, 'assets', 'bot_image.jpg');
     await XeonBotInc.sendMessage(botNumber, {
       image: fs.readFileSync(imagePath),
       caption,
       ...channelInfo
     });
-  } catch (e) { console.error('Error sending connect message:', e.message); }
-                await delay(1999);
+  } catch (e) {
+    console.error('Connection notification error:', e.message);
+  }
+
+  await delay(1999);
                 console.log(chalk.bold.blue('[ LordFarhan Bot ]'));
                 console.log(chalk.green('Bot Connected Successfully! Version: ' + settings.version));
             }
