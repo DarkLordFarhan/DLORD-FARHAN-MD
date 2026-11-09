@@ -69,30 +69,60 @@ async function getOkatsuDownloadByUrl(youtubeUrl) {
 
 async function songCommand(sock, chatId, message) {
     try {
-        const text = message.message?.conversation || message.message?.extendedTextMessage?.text || '';
-        if (!text) {
-            await sock.sendMessage(chatId, { text: 'Usage: .song <song name or YouTube link>' }, { quoted: message });
+        const rawText = (
+            message.message?.conversation ||
+            message.message?.extendedTextMessage?.text ||
+            message.message?.imageMessage?.caption ||
+            message.message?.videoMessage?.caption ||
+            ''
+        ).trim();
+
+        // Remove .play/.song/.mp3 command prefix before searching or downloading.
+        const searchQuery = rawText.replace(/^\S+\s*/, '').trim();
+
+        if (!searchQuery) {
+            await sock.sendMessage(chatId, {
+                text: 'Usage: .play <song name or YouTube link>'
+            }, { quoted: message });
             return;
         }
 
         let video;
-        if (text.includes('youtube.com') || text.includes('youtu.be')) {
-			video = { url: text };
+        if (/^https?:\/\/(?:www\.|m\.)?(?:youtube\.com|youtu\.be)\//i.test(searchQuery)) {
+            video = {
+                url: searchQuery,
+                title: 'YouTube audio',
+                thumbnail: null,
+                timestamp: ''
+            };
         } else {
-			const search = await yts(text);
-			if (!search || !search.videos.length) {
-                await sock.sendMessage(chatId, { text: 'No results found.' }, { quoted: message });
+            const search = await yts(searchQuery);
+            const videos = Array.isArray(search?.videos) ? search.videos : [];
+
+            if (!videos.length) {
+                await sock.sendMessage(chatId, {
+                    text: 'No results found. Try another song name.'
+                }, { quoted: message });
                 return;
             }
-			video = search.videos[0];
+
+            video = videos[0];
         }
 
         // Inform user
-        await sock.sendMessage(chatId, {
-            image: { url: video.thumbnail },
-            caption: `🎵 Downloading: *${video.title}*
-⏱ Duration: ${video.timestamp}`
-        }, { quoted: message });
+        const downloadCaption = `🎵 Downloading: *${video.title || 'Your song'}*
+⏱ Duration: ${video.timestamp || 'Unknown'}`;
+
+        if (video.thumbnail) {
+            await sock.sendMessage(chatId, {
+                image: { url: video.thumbnail },
+                caption: downloadCaption
+            }, { quoted: message });
+        } else {
+            await sock.sendMessage(chatId, {
+                text: downloadCaption
+            }, { quoted: message });
+        }
 
 		// Try multiple APIs with fallback chain: EliteProTech -> Yupra -> Okatsu
 		let audioData;
@@ -303,12 +333,12 @@ async function songCommand(sock, chatId, message) {
         
         // Provide more specific error messages
         let errorMessage = '❌ Failed to download song.';
-        if (err.message && err.message.includes('blocked')) {
-            errorMessage = '❌ Download blocked. The content may be unavailable in your region or due to legal restrictions.';
+        if (err.message && err.message.includes('All download sources failed')) {
+            errorMessage = '❌ All music download providers failed. Try another song or link later.';
         } else if (err.response?.status === 451 || err.status === 451) {
-            errorMessage = '❌ Content unavailable (451). This may be due to legal restrictions or regional blocking.';
-        } else if (err.message && err.message.includes('All download sources failed')) {
-            errorMessage = '❌ All download sources failed. The content may be unavailable or blocked.';
+            errorMessage = '❌ This source returned HTTP 451 and is unavailable from the downloader.';
+        } else if (err.message && err.message.includes('blocked')) {
+            errorMessage = '❌ The audio source rejected the download request.';
         }
         
         await sock.sendMessage(chatId, { 

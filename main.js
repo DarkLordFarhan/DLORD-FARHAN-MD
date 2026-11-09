@@ -958,7 +958,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await facebookCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.music'):
-                await playCommand(sock, chatId, message);
+                await songCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.spotify'):
                 await spotifyCommand(sock, chatId, message);
