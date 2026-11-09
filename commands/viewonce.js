@@ -1,26 +1,68 @@
 const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
-async function viewonceCommand(sock, chatId, message) {
-    // Extract quoted imageMessage or videoMessage from your structure
-    const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-    const quotedImage = quoted?.imageMessage;
-    const quotedVideo = quoted?.videoMessage;
+function unwrap(msg) {
+    while (msg) {
+        if (msg.ephemeralMessage?.message) {
+            msg = msg.ephemeralMessage.message;
+            continue;
+        }
+        if (msg.viewOnceMessage?.message) {
+            msg = msg.viewOnceMessage.message;
+            continue;
+        }
+        if (msg.viewOnceMessageV2?.message) {
+            msg = msg.viewOnceMessageV2.message;
+            continue;
+        }
+        if (msg.viewOnceMessageV2Extension?.message) {
+            msg = msg.viewOnceMessageV2Extension.message;
+            continue;
+        }
+        break;
+    }
+    return msg;
+}
 
-    if (quotedImage && quotedImage.viewOnce) {
-        // Download and send the image
-        const stream = await downloadContentFromMessage(quotedImage, 'image');
-        let buffer = Buffer.from([]);
-        for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-        await sock.sendMessage(chatId, { image: buffer, fileName: 'media.jpg', caption: quotedImage.caption || '' }, { quoted: message });
-    } else if (quotedVideo && quotedVideo.viewOnce) {
-        // Download and send the video
-        const stream = await downloadContentFromMessage(quotedVideo, 'video');
-        let buffer = Buffer.from([]);
-        for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-        await sock.sendMessage(chatId, { video: buffer, fileName: 'media.mp4', caption: quotedVideo.caption || '' }, { quoted: message });
-    } else {
-        await sock.sendMessage(chatId, { text: '❌ Please reply to a view-once image or video.' }, { quoted: message });
+async function viewonceCommand(sock, chatId, message) {
+    try {
+        const context = message.message?.extendedTextMessage?.contextInfo;
+        if (!context?.quotedMessage) {
+            return sock.sendMessage(chatId, {
+                text: '❌ Reply directly to a view-once photo or video with .vv'
+            }, { quoted: message });
+        }
+
+        const quoted = unwrap(context.quotedMessage);
+        const image = quoted?.imageMessage;
+        const video = quoted?.videoMessage;
+        const media = image || video;
+
+        if (!media || !media.viewOnce) {
+            return sock.sendMessage(chatId, {
+                text: '❌ No view-once image or video detected. Reply to the original view-once media.'
+            }, { quoted: message });
+        }
+
+        const type = image ? 'image' : 'video';
+        const stream = await downloadContentFromMessage(media, type);
+        const chunks = [];
+
+        for await (const chunk of stream) chunks.push(chunk);
+
+        const buffer = Buffer.concat(chunks);
+        if (!buffer.length) throw new Error('Downloaded media is empty');
+
+        await sock.sendMessage(chatId, image
+            ? { image: buffer, caption: media.caption || '' }
+            : { video: buffer, caption: media.caption || '' },
+            { quoted: message });
+
+    } catch (error) {
+        console.error('[VV ERROR]', error);
+        await sock.sendMessage(chatId, {
+            text: '❌ Could not retrieve this view-once media. Check the bot logs.'
+        }, { quoted: message });
     }
 }
 
-module.exports = viewonceCommand; 
+module.exports = viewonceCommand;
