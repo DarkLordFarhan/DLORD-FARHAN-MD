@@ -182,7 +182,7 @@ const sessionLoaded = loadSessionFromEnv();
 let owner = ['0108817832'];
 try { owner = JSON.parse(fs.readFileSync('./data/owner.json')); } catch (e) { console.log('⚠️  owner.json missing, using default owner'); }
 
-global.botname = 'LordFarhan Bot';
+global.botname = settings.botName || 'LORD FARHAN BOT';
 global.themeemoji = '•';
 
 const channelInfo = {
@@ -332,10 +332,11 @@ async function startXeonBotInc() {
                 console.log(chalk.green('Connected to WhatsApp.'));
                 try {
                     const botNumber = XeonBotInc.user.id.split(':')[0] + '@s.whatsapp.net';
-                    await XeonBotInc.sendMessage(botNumber, {
-                        text: '*LordFarhan Bot Connected!*\n\nStatus: Online\n_Powered by DarkLordFarhanXMDTech_',
-                        ...channelInfo
-                    });
+                    const caption = '👑 *𝕷𝕺𝕽𝕯 𝕱𝕬𝕽𝕳𝕬𝕹* 👑\n\n🔥 *BOT CONNECTED SUCCESSFULLY*\n🟢 Status: ONLINE\n⚡ Powered by DARKTECH';
+                    const image = path.join(__dirname, 'assets/bot_image.jpg');
+                    await XeonBotInc.sendMessage(botNumber, fs.existsSync(image)
+                      ? { image: fs.readFileSync(image), caption, ...channelInfo }
+                      : { text: caption, ...channelInfo });
                 } catch (e) { console.error('Error sending connect message:', e.message); }
                 await delay(1999);
                 console.log(chalk.bold.blue('[ LordFarhan Bot ]'));

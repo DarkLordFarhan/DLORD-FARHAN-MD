@@ -3,11 +3,15 @@ const fs = require('fs');
 const path = require('path');
 
 async function helpCommand(sock, chatId, message) {
+    const nairobiTime = new Intl.DateTimeFormat('en-KE', {
+      timeZone: 'Africa/Nairobi', dateStyle: 'full', timeStyle: 'short'
+    }).format(new Date());
     const helpMessage = `
 ╔══════════════════════════════════════╗
-║          👑 *DLORD FARHAN BOT* 👑          ║
+║          ♛ *𝕯𝕷𝕺𝕽𝕯 𝕱𝕬𝕽𝕳𝕬𝕹 𝕭𝕺𝕿* ♛          ║
 ╠══════════════════════════════════════╣
 ║  ⚡ Version: *${settings.version || '3.0.0'}*
+║  🕒 Nairobi, Kenya: *${nairobiTime} EAT*
 ║  👑 Owner: *${settings.botOwner || 'Farhan II'}*
 ║  💠 Status: *POWERED BY FARHAN II*
 ╚══════════════════════════════════════╝

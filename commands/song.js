@@ -27,7 +27,18 @@ async function tryRequest(getter, attempts = 3) {
 	throw lastError;
 }
 
-// EliteProTech API - Primary
+// Samplecut API - first provider
+async function getSamplecutDownload(url) {
+  const r = await axios.post('https://api.samplecut.app/v1/downloads',
+    { url, format: 'mp3' },
+    { timeout: 120000, headers: { 'Content-Type': 'application/json' } });
+  if (r.data?.download_url) return {
+    download: r.data.download_url, title: r.data.title
+  };
+  throw new Error('Samplecut returned no download URL');
+}
+
+// EliteProTech API - fallback
 async function getEliteProTechDownloadByUrl(youtubeUrl) {
 	const apiUrl = `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(youtubeUrl)}&format=mp3`;
 	const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
@@ -131,6 +142,7 @@ async function songCommand(sock, chatId, message) {
 		
 		// List of API methods to try
 		const apiMethods = [
+            { name: 'Samplecut', method: () => getSamplecutDownload(video.url) },
 			{ name: 'EliteProTech', method: () => getEliteProTechDownloadByUrl(video.url) },
 			{ name: 'Yupra', method: () => getYupraDownloadByUrl(video.url) },
 			{ name: 'Okatsu', method: () => getOkatsuDownloadByUrl(video.url) }
