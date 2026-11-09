@@ -253,8 +253,17 @@ async function startXeonBotInc() {
         store.bind(XeonBotInc.ev);
 
         XeonBotInc.ev.on('messages.upsert', async chatUpdate => {
+            console.log('[INCOMING EVENT]', JSON.stringify({
+                type: chatUpdate?.type,
+                count: chatUpdate?.messages?.length,
+                time: new Date().toISOString()
+            }));
             try {
-                const mek = chatUpdate.messages[0];
+                const mek = chatUpdate.messages?.[0];
+                if (!mek) {
+                    console.log('[INCOMING EVENT] No message object received');
+                    return;
+                }
                 if (!mek.message) return;
                 mek.message = (Object.keys(mek.message)[0] === 'ephemeralMessage')
                     ? mek.message.ephemeralMessage.message : mek.message;

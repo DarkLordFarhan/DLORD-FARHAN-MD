@@ -161,7 +161,14 @@ async function handleMessages(sock, messageUpdate, printLog) {
     let chatId = null;
     try {
         const { messages, type } = messageUpdate;
-        if (type !== 'notify') return;
+        console.log('[MAIN HANDLER]', JSON.stringify({
+            type,
+            count: messages?.length
+        }));
+        if (type !== 'notify') {
+            console.log('[MAIN HANDLER] Ignored event type:', type);
+            return;
+        }
 
         const message = messages[0];
         if (!message?.message) return;
