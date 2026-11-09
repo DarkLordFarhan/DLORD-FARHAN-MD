@@ -158,12 +158,38 @@ const channelInfo = {
 };
 
 async function handleMessages(sock, messageUpdate, printLog) {
+    let chatId = null;
     try {
         const { messages, type } = messageUpdate;
         if (type !== 'notify') return;
 
         const message = messages[0];
         if (!message?.message) return;
+
+        // Reliable public menu/help dispatch before other command restrictions.
+        const incomingChatId = message.key?.remoteJid;
+        const incomingText = (
+            message.message?.conversation ||
+            message.message?.extendedTextMessage?.text ||
+            message.message?.imageMessage?.caption ||
+            message.message?.videoMessage?.caption ||
+            ''
+        ).trim().toLowerCase().replace(/\.\s+/g, '.');
+
+        if (['.menu', '.help', '.bot', '.list'].includes(incomingText)) {
+            chatId = incomingChatId;
+            console.log('[MENU] Request received from', message.key?.participant || incomingChatId);
+            try {
+                await helpCommand(sock, incomingChatId, message, global.channelLink);
+                console.log('[MENU] Response sent successfully.');
+            } catch (menuError) {
+                console.error('[MENU_HANDLER_ERROR]', menuError?.stack || menuError);
+                await sock.sendMessage(incomingChatId, {
+                    text: '❌ Menu failed to load. Please check the bot console.'
+                }).catch(sendError => console.error('[MENU_SEND_ERROR]', sendError));
+            }
+            return;
+        }
 
         // Handle autoread functionality
         await handleAutoread(sock, message);
@@ -179,7 +205,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
             return;
         }
 
-        const chatId = message.key.remoteJid;
+        chatId = message.key.remoteJid;
         const senderId = message.key.participant || message.key.remoteJid;
         const isGroup = chatId.endsWith('@g.us');
         const senderIsSudo = await isSudo(senderId);
