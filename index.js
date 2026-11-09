@@ -97,16 +97,38 @@ function loadSessionFromEnv() {
             }
         }
 
-        const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-        const decoded = Buffer.from(normalized, 'base64').toString('utf8');
+        const normalized = payload
+            .replace(/-/g, '+')
+            .replace(/_/g, '/');
 
-        const parsed = JSON.parse(decoded, (key, value) => {
+        const packed = Buffer.from(normalized, 'base64');
+
+        if (!packed.length)
+            throw new Error('Empty or invalid Base64 session');
+
+        const zlib = require('zlib');
+
+        // Detect and decompress GZIP sessions (H4sIA...)
+        const isGzip = packed[0] === 0x1f && packed[1] === 0x8b;
+
+        const decoded = isGzip
+            ? zlib.gunzipSync(packed).toString('utf8')
+            : packed.toString('utf8');
+
+        const reviveSessionValue = (key, value) => {
             if (value && value.type === 'Buffer' && Array.isArray(value.data))
                 return Buffer.from(value.data);
+
             if (value && value.type === 'Uint8Array' && Array.isArray(value.data))
                 return new Uint8Array(value.data);
+
             return value;
-        });
+        };
+
+        let parsed = JSON.parse(decoded, reviveSessionValue);
+
+        if (typeof parsed === 'string')
+            parsed = JSON.parse(parsed, reviveSessionValue);
 
         const bundle = parsed.state || parsed.authState ||
                        parsed.session || parsed;
