@@ -154,7 +154,7 @@ async function helpCommand(sock, chatId, message) {
 ║ 💎 .github
 ╚══════════════════════════════════════════════╝
 
-       ⚡ *DLORD FARHAN BOT — POWERED BY FARHAN II* ⚡
+       ⚡ *👑 𝕃𝕆ℝ𝔻 𝔽𝔸ℝℍ𝔸ℕ 𝔹𝕆𝕋 👑 — POWERED BY FARHAN II* ⚡
 `;
 
     try {

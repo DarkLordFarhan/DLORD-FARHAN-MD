@@ -331,13 +331,15 @@ async function startXeonBotInc() {
             if (connection === 'open') {
                 console.log(chalk.green('Connected to WhatsApp.'));
                 try {
-                    const botNumber = XeonBotInc.user.id.split(':')[0] + '@s.whatsapp.net';
-                    const caption = '👑 *𝕷𝕺𝕽𝕯 𝕱𝕬𝕽𝕳𝕬𝕹* 👑\n\n🔥 *BOT CONNECTED SUCCESSFULLY*\n🟢 Status: ONLINE\n⚡ Powered by DARKTECH';
-                    const image = path.join(__dirname, 'assets/bot_image.jpg');
-                    await XeonBotInc.sendMessage(botNumber, fs.existsSync(image)
-                      ? { image: fs.readFileSync(image), caption, ...channelInfo }
-                      : { text: caption, ...channelInfo });
-                } catch (e) { console.error('Error sending connect message:', e.message); }
+    const botNumber = XeonBotInc.user.id.split(':')[0] + '@s.whatsapp.net';
+    const caption = `👑 *${botName}* 👑\n\n🔥 *BOT CONNECTED SUCCESSFULLY*\n\n✅ Status: ONLINE\n👑 Owner: *${settings.botOwner}*\n🕒 Timezone: Nairobi, Kenya (EAT)\n⚡ Powered by DARKTECH CLAN NET`;
+    const imagePath = path.join(__dirname, 'assets', 'bot_image.jpg');
+    await XeonBotInc.sendMessage(botNumber, {
+      image: fs.readFileSync(imagePath),
+      caption,
+      ...channelInfo
+    });
+  } catch (e) { console.error('Error sending connect message:', e.message); }
                 await delay(1999);
                 console.log(chalk.bold.blue('[ LordFarhan Bot ]'));
                 console.log(chalk.green('Bot Connected Successfully! Version: ' + settings.version));
