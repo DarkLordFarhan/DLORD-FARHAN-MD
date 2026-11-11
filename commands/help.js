@@ -25,6 +25,7 @@ async function helpCommand(sock, chatId, message) {
 ║ 💎 .joke
 ║ 💎 .quote
 ║ 💎 .fact
+║ 💎 .status / .uptime
 ║ 💎 .weather <city>
 ║ 💎 .news
 ║ 💎 .attp <text>
@@ -72,6 +73,7 @@ async function helpCommand(sock, chatId, message) {
 ║ 💎 .antidelete
 ║ 💎 .cleartmp
 ║ 💎 .update
+║ 💎 .restart
 ║ 💎 .settings
 ║ 💎 .setpp <reply to image>
 ║ 💎 .autoreact <on/off>

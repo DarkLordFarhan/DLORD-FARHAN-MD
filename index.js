@@ -61,19 +61,172 @@ console.log('='.repeat(55));
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── SESSION LOADER ───────────────────────────────────────────────────────────
-// Reads SESSION_ID from .env (format: LordBot<base64_creds_json>),
-// decodes it, and writes session/creds.json so the bot connects without QR.
+// Accepts the pairing site's long compressed session or a database-backed short ID.
+const SESSION_PREFIX = 'LordBot~';
+const DEFAULT_PAIRING_SERVER_URL =
+    'https://lordfarhan-xmd-production-6ffc.up.railway.app';
+const MAX_SESSION_TEXT_LENGTH = 2 * 1024 * 1024;
+const MAX_SESSION_JSON_BYTES = 4 * 1024 * 1024;
 
-function loadSessionFromEnv() {
+function sessionImportError(code) {
+    const error = new Error(code);
+    error.code = code;
+    return error;
+}
+
+async function resolveSessionPayload(sessionId) {
+    if (typeof sessionId !== 'string' || sessionId.length > MAX_SESSION_TEXT_LENGTH) {
+        throw sessionImportError('SESSION_ID_INVALID');
+    }
+    if (!sessionId.startsWith(SESSION_PREFIX)) {
+        throw sessionImportError('SESSION_PREFIX_INVALID');
+    }
+
+    let fullSession = sessionId.trim();
+    let payload = fullSession.slice(SESSION_PREFIX.length).trim();
+
+    // The site emits 12-character IDs only when its database-backed store is enabled.
+    if (/^[A-Za-z0-9]{12}$/.test(payload)) {
+        let server;
+        try {
+            server = new URL(
+                process.env.PAIRING_SERVER_URL || DEFAULT_PAIRING_SERVER_URL
+            );
+        } catch {
+            throw sessionImportError('PAIRING_SERVER_URL_INVALID');
+        }
+        if (server.protocol !== 'https:' || server.username || server.password) {
+            throw sessionImportError('PAIRING_SERVER_URL_INVALID');
+        }
+
+        const endpoint = new URL(`/session/${encodeURIComponent(payload)}`, server);
+        let response;
+        try {
+            response = await fetch(endpoint, {
+                method: 'GET',
+                headers: { accept: 'text/plain' },
+                redirect: 'error',
+                signal: AbortSignal.timeout(12000)
+            });
+        } catch {
+            throw sessionImportError('SHORT_SESSION_FETCH_FAILED');
+        }
+        if (response.status === 404) {
+            throw sessionImportError('SHORT_SESSION_NOT_FOUND');
+        }
+        if (response.status === 503) {
+            throw sessionImportError('SHORT_SESSION_STORE_UNAVAILABLE');
+        }
+        if (!response.ok) {
+            throw sessionImportError('SHORT_SESSION_FETCH_FAILED');
+        }
+
+        try {
+            fullSession = (await response.text()).trim();
+        } catch {
+            throw sessionImportError('SHORT_SESSION_FETCH_FAILED');
+        }
+        if (
+            !fullSession ||
+            fullSession.length > MAX_SESSION_TEXT_LENGTH ||
+            !fullSession.startsWith(SESSION_PREFIX)
+        ) {
+            throw sessionImportError('SHORT_SESSION_RESPONSE_INVALID');
+        }
+        payload = fullSession.slice(SESSION_PREFIX.length).trim();
+        if (/^[A-Za-z0-9]{12}$/.test(payload)) {
+            throw sessionImportError('SHORT_SESSION_RESPONSE_INVALID');
+        }
+    }
+
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    if (
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized) ||
+        normalized.length % 4 === 1
+    ) {
+        throw sessionImportError('SESSION_BASE64_INVALID');
+    }
+    const unpadded = normalized.replace(/=+$/, '');
+    const packed = Buffer.from(normalized, 'base64');
+    if (
+        !packed.length ||
+        packed.toString('base64').replace(/=+$/, '') !== unpadded
+    ) {
+        throw sessionImportError('SESSION_BASE64_INVALID');
+    }
+
+    const zlib = require('zlib');
+    let decodedBytes = packed;
+    try {
+        if (packed[0] === 0x1f && packed[1] === 0x8b) {
+            decodedBytes = zlib.gunzipSync(packed, {
+                maxOutputLength: MAX_SESSION_JSON_BYTES
+            });
+        } else if (
+            packed[0] === 0x78 &&
+            [0x01, 0x5e, 0x9c, 0xda].includes(packed[1])
+        ) {
+            decodedBytes = zlib.inflateSync(packed, {
+                maxOutputLength: MAX_SESSION_JSON_BYTES
+            });
+        }
+    } catch {
+        throw sessionImportError('SESSION_COMPRESSION_INVALID');
+    }
+    if (decodedBytes.length > MAX_SESSION_JSON_BYTES) {
+        throw sessionImportError('SESSION_TOO_LARGE');
+    }
+
+    const reviveSessionValue = (key, value) => {
+        if (value && value.type === 'Buffer' && Array.isArray(value.data)) {
+            return Buffer.from(value.data);
+        }
+        if (value && value.type === 'Uint8Array' && Array.isArray(value.data)) {
+            return new Uint8Array(value.data);
+        }
+        return value;
+    };
+
+    let parsed;
+    try {
+        parsed = JSON.parse(decodedBytes.toString('utf8'), reviveSessionValue);
+        if (typeof parsed === 'string') {
+            parsed = JSON.parse(parsed, reviveSessionValue);
+        }
+    } catch {
+        throw sessionImportError('SESSION_JSON_INVALID');
+    }
+
+    const bundle = parsed?.state || parsed?.authState || parsed?.session || parsed;
+    const creds = bundle?.creds || parsed?.creds ||
+        (bundle?.registrationId !== undefined ? bundle : null);
+    const keys = bundle?.keys || parsed?.keys || {};
+    if (
+        !creds ||
+        typeof creds !== 'object' ||
+        creds.registrationId === undefined ||
+        !creds.noiseKey ||
+        !creds.signedIdentityKey ||
+        !creds.signedPreKey
+    ) {
+        throw sessionImportError('SESSION_CREDS_INVALID');
+    }
+    if (!keys || typeof keys !== 'object' || Array.isArray(keys)) {
+        throw sessionImportError('SESSION_KEYS_INVALID');
+    }
+
+    return { creds, keys };
+}
+
+async function loadSessionFromEnv() {
     const sessionId = String(process.env.SESSION_ID || '').trim();
 
     if (!sessionId) {
         console.log('No SESSION_ID found; using normal pairing fallback.');
         return false;
     }
-
-    if (!sessionId.startsWith('LordBot~')) {
-        console.log('Invalid session prefix. Expected LordBot~');
+    if (sessionId.length > MAX_SESSION_TEXT_LENGTH) {
+        console.log('SESSION_ID is too large; using normal pairing fallback.');
         return false;
     }
 
@@ -83,12 +236,18 @@ function loadSessionFromEnv() {
         const credsPath = sessionDir + '/creds.json';
         const pendingPath = sessionDir + '/.lordbot-pending-keys.json';
         const markerPath = sessionDir + '/.lordbot-session-hash';
-
-        const payload = sessionId.slice('LordBot~'.length).trim();
-        if (!payload) throw new Error('Empty session payload');
+        const rejectedPath = sessionDir + '/.lordbot-session-rejected';
 
         const hash = crypto.createHash('sha256')
             .update(sessionId).digest('hex');
+
+        if (
+            fs.existsSync(rejectedPath) &&
+            fs.readFileSync(rejectedPath, 'utf8').trim() === hash
+        ) {
+            console.log('This SESSION_ID was logged out; use a new session or QR pairing.');
+            return false;
+        }
 
         if (fs.existsSync(markerPath) && fs.existsSync(credsPath)) {
             if (fs.readFileSync(markerPath, 'utf8').trim() === hash) {
@@ -97,70 +256,22 @@ function loadSessionFromEnv() {
             }
         }
 
-        const normalized = payload
-            .replace(/-/g, '+')
-            .replace(/_/g, '/');
-
-        const packed = Buffer.from(normalized, 'base64');
-
-        if (!packed.length)
-            throw new Error('Empty or invalid Base64 session');
-
-        const zlib = require('zlib');
-
-        // Detect and decompress GZIP sessions (H4sIA...)
-        const isGzip = packed[0] === 0x1f && packed[1] === 0x8b;
-
-        const decoded = isGzip
-            ? zlib.gunzipSync(packed).toString('utf8')
-            : packed.toString('utf8');
-
-        const reviveSessionValue = (key, value) => {
-            if (value && value.type === 'Buffer' && Array.isArray(value.data))
-                return Buffer.from(value.data);
-
-            if (value && value.type === 'Uint8Array' && Array.isArray(value.data))
-                return new Uint8Array(value.data);
-
-            return value;
-        };
-
-        let parsed = JSON.parse(decoded, reviveSessionValue);
-
-        if (typeof parsed === 'string')
-            parsed = JSON.parse(parsed, reviveSessionValue);
-
-        const bundle = parsed.state || parsed.authState ||
-                       parsed.session || parsed;
-
-        const creds = bundle.creds || parsed.creds ||
-                      (bundle.registrationId !== undefined ? bundle : null);
-
-        const keys = bundle.keys || parsed.keys || {};
-
-        if (!creds || typeof creds !== 'object')
-            throw new Error('No Baileys credentials found in session');
-
-        if (creds.registrationId === undefined ||
-            !creds.noiseKey ||
-            !creds.signedIdentityKey ||
-            !creds.signedPreKey) {
-            throw new Error('Incomplete Baileys credentials');
-        }
-
-        if (!keys || typeof keys !== 'object')
-            throw new Error('Invalid Signal keys structure');
+        const { creds, keys } = await resolveSessionPayload(sessionId);
 
         // Preserve the previous authentication directory before replacement.
         if (fs.existsSync(sessionDir)) {
             const backupDir = './session.backup-' + Date.now();
             fs.renameSync(sessionDir, backupDir);
-            console.log('Previous authentication backed up to ' + backupDir);
+            console.log('Previous authentication state backed up.');
         }
 
-        fs.mkdirSync(sessionDir, { recursive: true });
-        fs.writeFileSync(credsPath, JSON.stringify(creds, null, 2));
-        fs.writeFileSync(pendingPath, JSON.stringify({ keys, hash }));
+        fs.mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
+        fs.writeFileSync(credsPath, JSON.stringify(creds, null, 2), { mode: 0o600 });
+        fs.writeFileSync(
+            pendingPath,
+            JSON.stringify({ keys, hash }),
+            { mode: 0o600 }
+        );
 
         console.log('LordBot credentials decoded and validated.');
         console.log('Signal key import will run after Baileys initializes.');
@@ -171,12 +282,13 @@ function loadSessionFromEnv() {
         return true;
 
     } catch (err) {
-        console.log('LordBot session import failed: ' + err.message);
+        const code = typeof err?.code === 'string' ? err.code : 'SESSION_IMPORT_FAILED';
+        console.log('LordBot session import failed (' + code + ').');
         return false;
     }
 }
 
-const sessionLoaded = loadSessionFromEnv();
+let sessionLoaded = false;
 // ─────────────────────────────────────────────────────────────────────────────
 
 let owner = ['0108817832'];
@@ -194,6 +306,7 @@ const channelInfo = {
 
 async function startXeonBotInc() {
     try {
+        sessionLoaded = await loadSessionFromEnv();
         let { version, isLatest } = await fetchLatestBaileysVersion();
         const { state, saveCreds } = await useMultiFileAuthState('./session');
 
@@ -361,8 +474,30 @@ async function startXeonBotInc() {
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
                 console.log(chalk.red('Connection closed — statusCode: ' + statusCode));
                 if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                    try { rmSync('./session', { recursive: true, force: true }); } catch {}
-                    console.log(chalk.red('Session expired! Update SESSION_ID in your .env and restart.'));
+                    try {
+                        const sessionDir = './session';
+                        const markerPath = path.join(sessionDir, '.lordbot-session-hash');
+                        if (sessionLoaded && fs.existsSync(markerPath)) {
+                            const hash = fs.readFileSync(markerPath, 'utf8').trim();
+                            fs.writeFileSync(
+                                path.join(sessionDir, '.lordbot-session-rejected'),
+                                hash,
+                                { mode: 0o600 }
+                            );
+                            for (const entry of fs.readdirSync(sessionDir)) {
+                                if (
+                                    entry === '.lordbot-session-hash' ||
+                                    entry === '.lordbot-session-rejected'
+                                ) continue;
+                                rmSync(path.join(sessionDir, entry), { recursive: true, force: true });
+                            }
+                        } else {
+                            rmSync(sessionDir, { recursive: true, force: true });
+                        }
+                    } catch {
+                        try { rmSync('./session', { recursive: true, force: true }); } catch {}
+                    }
+                    console.log(chalk.red('Session expired. Replace SESSION_ID in the hosting environment or use QR pairing.'));
                     process.exit(1);
                 }
                 if (shouldReconnect) { console.log('Reconnecting in 5s...'); await delay(5000); startXeonBotInc(); }

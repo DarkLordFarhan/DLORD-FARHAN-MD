@@ -135,6 +135,7 @@ const { animeCommand } = require('./commands/anime');
 const { piesCommand, piesAlias } = require('./commands/pies');
 const stickercropCommand = require('./commands/stickercrop');
 const updateCommand = require('./commands/update');
+const statusCommand = require('./commands/status');
 const removebgCommand = require('./commands/removebg');
 const { reminiCommand } = require('./commands/remini');
 const { igsCommand } = require('./commands/igs');
@@ -474,6 +475,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
             case userMessage === '.settings':
                 await settingsCommand(sock, chatId, message);
+                break;
+            case userMessage === '.status' || userMessage === '.uptime':
+                await statusCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.mode'):
                 // Check if sender is the owner
@@ -1172,6 +1176,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             case userMessage === '.thailand':
                 await piesAlias(sock, chatId, message, 'thailand');
+                commandExecuted = true;
+                break;
+            case userMessage === '.restart':
+                await updateCommand.restartCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
             case userMessage.startsWith('.update'):

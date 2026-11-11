@@ -7,6 +7,7 @@ temp/
 
 # Session files
 session/
+session.backup-*/
 .env
 .env.*
 !.env.example

@@ -179,8 +179,8 @@ async function restartProcess(sock, chatId, message) {
         await sock.sendMessage(chatId, { text: '✅ Update complete! Restarting…' }, { quoted: message });
     } catch {}
     try {
-        // Preferred: PM2
-        await run('pm2 restart all');
+        // Restart only this bot; do not affect other apps sharing PM2.
+        await run('pm2 restart LordFarhanBot');
         return;
     } catch {}
     // Panels usually auto-restart when the process exits.
@@ -188,6 +188,35 @@ async function restartProcess(sock, chatId, message) {
     setTimeout(() => {
         process.exit(0);
     }, 500);
+}
+
+async function restartCommand(sock, chatId, message, options = {}) {
+    const senderId = message.key.participant || message.key.remoteJid;
+    const isOwner = Boolean(message.key.fromMe) ||
+        await isOwnerOrSudo(senderId, sock, chatId);
+    if (!isOwner) {
+        await sock.sendMessage(
+            chatId,
+            { text: 'Only the bot owner or sudo can use .restart.' },
+            { quoted: message }
+        );
+        return;
+    }
+
+    try {
+        await sock.sendMessage(
+            chatId,
+            { text: '🔄 Restarting DLORD FARHAN MD…' },
+            { quoted: message }
+        );
+    } catch {}
+
+    try {
+        await (options.runCommand || run)('pm2 restart LordFarhanBot');
+        return;
+    } catch {}
+
+    setTimeout(() => (options.exitProcess || process.exit)(0), 500);
 }
 
 async function updateCommand(sock, chatId, message, zipOverride) {
@@ -227,5 +256,6 @@ async function updateCommand(sock, chatId, message, zipOverride) {
 }
 
 module.exports = updateCommand;
+module.exports.restartCommand = restartCommand;
 
 
