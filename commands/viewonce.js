@@ -1,78 +1,102 @@
-const {
-  downloadContentFromMessage,
-  jidNormalizedUser
-} = require('@whiskeysockets/baileys');
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
 
-function unwrap(msg) {
-  let once = false;
-  while (msg) {
-    if (msg.viewOnceMessage?.message) {
-      once = true;
-      msg = msg.viewOnceMessage.message;
-    } else if (msg.viewOnceMessageV2?.message) {
-      once = true;
-      msg = msg.viewOnceMessageV2.message;
-    } else if (msg.viewOnceMessageV2Extension?.message) {
-      once = true;
-      msg = msg.viewOnceMessageV2Extension.message;
-    } else if (msg.ephemeralMessage?.message) {
-      msg = msg.ephemeralMessage.message;
-    } else {
-      break;
+function unwrap(message) {
+    let current = message;
+    let viewOnce = false;
+
+    while (current) {
+        if (current.viewOnceMessage?.message) {
+            viewOnce = true;
+            current = current.viewOnceMessage.message;
+        } else if (current.viewOnceMessageV2?.message) {
+            viewOnce = true;
+            current = current.viewOnceMessageV2.message;
+        } else if (current.viewOnceMessageV2Extension?.message) {
+            viewOnce = true;
+            current = current.viewOnceMessageV2Extension.message;
+        } else if (current.ephemeralMessage?.message) {
+            current = current.ephemeralMessage.message;
+        } else if (current.documentWithCaptionMessage?.message) {
+            current = current.documentWithCaptionMessage.message;
+        } else {
+            break;
+        }
     }
-  }
-  return { msg, once };
+
+    return { current, viewOnce };
 }
 
 async function viewonceCommand(sock, chatId, message) {
-  try {
-    const context =
-      message.message?.extendedTextMessage?.contextInfo;
+    try {
+        const context =
+            message.message?.extendedTextMessage?.contextInfo ||
+            message.message?.imageMessage?.contextInfo ||
+            message.message?.videoMessage?.contextInfo;
 
-    if (!context?.quotedMessage) {
-      console.error('[VV] Reply to view-once media.');
-      return;
-    }
-
-    const { msg, once } = unwrap(context.quotedMessage);
-    const image = msg?.imageMessage;
-    const video = msg?.videoMessage;
-    const media = image || video;
-
-    if (!media || !(once || media.viewOnce === true)) {
-      console.error('[VV] No view-once media found.');
-      return;
-    }
-
-    const type = image ? 'image' : 'video';
-    const stream = await downloadContentFromMessage(media, type);
-    const chunks = [];
-
-    for await (const chunk of stream) {
-      chunks.push(Buffer.from(chunk));
-    }
-
-    const buffer = Buffer.concat(chunks);
-    if (!buffer.length) throw new Error('Empty media');
-
-    const inbox = jidNormalizedUser(sock.user?.id || '');
-    if (!inbox.endsWith('@s.whatsapp.net')) {
-      throw new Error('Bot inbox unavailable');
-    }
-
-    await sock.sendMessage(inbox, image
-      ? { image: buffer, caption: 'Recovered view-once photo' }
-      : {
-          video: buffer,
-          mimetype: media.mimetype || 'video/mp4',
-          caption: 'Recovered view-once video'
+        if (!context?.quotedMessage) {
+            await sock.sendMessage(chatId, {
+                text: '❌ Reply directly to a view-once photo or video with .vv'
+            }, { quoted: message });
+            return;
         }
-    );
 
-    console.log('[VV] Delivered privately to bot inbox.');
-  } catch (error) {
-    console.error('[VV ERROR]', error);
-  }
+        const { current, viewOnce } = unwrap(context.quotedMessage);
+
+        const image = current?.imageMessage;
+        const video = current?.videoMessage;
+        const media = image || video;
+
+        if (!media || !(viewOnce || media.viewOnce)) {
+            await sock.sendMessage(chatId, {
+                text: '❌ No view-once photo/video detected. Reply to the original media.'
+            }, { quoted: message });
+            return;
+        }
+
+        await sock.sendMessage(chatId, {
+            text: '⏳ Processing view-once media...'
+        }, { quoted: message });
+
+        const type = image ? 'image' : 'video';
+        const stream = await downloadContentFromMessage(media, type);
+        const chunks = [];
+
+        for await (const chunk of stream) {
+            chunks.push(Buffer.from(chunk));
+        }
+
+        const buffer = Buffer.concat(chunks);
+        if (!buffer.length) throw new Error('Downloaded media is empty');
+
+        const inbox = sock.user?.id?.split(':')[0];
+
+        if (!inbox) throw new Error('Bot WhatsApp account unavailable');
+
+        await sock.sendMessage(inbox, image
+            ? {
+                image: buffer,
+                caption: '👑 LORD FARHAN | Recovered view-once photo'
+            }
+            : {
+                video: buffer,
+                mimetype: media.mimetype || 'video/mp4',
+                caption: '👑 LORD FARHAN | Recovered view-once video'
+            }
+        );
+
+        await sock.sendMessage(chatId, {
+            text: '✅ Media processing completed. Check your bot inbox.'
+        }, { quoted: message });
+
+        console.log('[VV] Successfully delivered media to bot inbox.');
+
+    } catch (error) {
+        console.error('[VV ERROR]', error?.stack || error);
+
+        await sock.sendMessage(chatId, {
+            text: '❌ VV failed: ' + String(error.message || error).slice(0, 250)
+        }, { quoted: message }).catch(() => {});
+    }
 }
 
 module.exports = viewonceCommand;

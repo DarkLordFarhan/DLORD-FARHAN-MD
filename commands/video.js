@@ -121,29 +121,34 @@ async function videoCommand(sock, chatId, message) {
             { name: 'Okatsu', method: () => getOkatsuVideoByUrl(videoUrl) }
         ];
         
-        // Try each API until we successfully get video data
+        // Try each provider and preserve its actual failure reason.
+        const providerErrors = [];
+
         for (const apiMethod of apiMethods) {
             try {
-                videoData = await apiMethod.method();
-                const videoUrl_check = videoData.download || videoData.dl || videoData.url;
-                
-                if (!videoUrl_check) {
-                    console.log(`${apiMethod.name} returned no download URL, trying next API...`);
-                    continue; // Try next API
+                const result = await apiMethod.method();
+                const directUrl = result?.download || result?.dl || result?.url;
+
+                if (!directUrl || !/^https?:\\/\\//i.test(directUrl)) {
+                    throw new Error('Provider returned no valid download URL');
                 }
-                
+
+                videoData = result;
                 downloadSuccess = true;
-                break; // Success! Exit the loop
+                console.log('[VIDEO] Provider succeeded:', apiMethod.name);
+                break;
             } catch (apiErr) {
-                // API call failed, try next API
-                console.log(`${apiMethod.name} API failed:`, apiErr.message);
-                continue;
+                const reason = apiErr.response?.status
+                    ? 'HTTP ' + apiErr.response.status
+                    : apiErr.code || apiErr.message || 'Unknown error';
+
+                providerErrors.push(apiMethod.name + ': ' + reason);
+                console.error('[VIDEO] Provider failed:', apiMethod.name, reason);
             }
         }
-        
-        // If all APIs failed, throw error
+
         if (!downloadSuccess || !videoData) {
-            throw new Error('All download sources failed. The content may be unavailable or blocked in your region.');
+            throw new Error('All providers failed: ' + providerErrors.join(' | '));
         }
 
         
@@ -191,14 +196,10 @@ async function videoCommand(sock, chatId, message) {
         
         // Provide more specific error messages
         let errorMessage = '❌ Failed to download video.';
-        if (error.message && error.message.includes('blocked')) {
-            errorMessage = '❌ Download blocked. The content may be unavailable in your region or due to legal restrictions.';
-        } else if (error.response?.status === 451 || error.status === 451) {
-            errorMessage = '❌ Content unavailable (451). This may be due to legal restrictions or regional blocking.';
-        } else if (error.message && error.message.includes('All download sources failed')) {
-            errorMessage = '❌ All download sources failed. The content may be unavailable or blocked.';
+        if (error.response?.status === 451 || error.status === 451) {
+            errorMessage = '❌ Provider returned HTTP 451: content unavailable.';
         } else if (error.message) {
-            errorMessage = '❌ Download failed: ' + error.message;
+            errorMessage = '❌ Video error: ' + error.message.slice(0, 650);
         }
         
         await sock.sendMessage(chatId, { 
