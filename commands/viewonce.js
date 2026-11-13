@@ -1,68 +1,78 @@
-const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const {
+  downloadContentFromMessage,
+  jidNormalizedUser
+} = require('@whiskeysockets/baileys');
 
 function unwrap(msg) {
-    while (msg) {
-        if (msg.ephemeralMessage?.message) {
-            msg = msg.ephemeralMessage.message;
-            continue;
-        }
-        if (msg.viewOnceMessage?.message) {
-            msg = msg.viewOnceMessage.message;
-            continue;
-        }
-        if (msg.viewOnceMessageV2?.message) {
-            msg = msg.viewOnceMessageV2.message;
-            continue;
-        }
-        if (msg.viewOnceMessageV2Extension?.message) {
-            msg = msg.viewOnceMessageV2Extension.message;
-            continue;
-        }
-        break;
+  let once = false;
+  while (msg) {
+    if (msg.viewOnceMessage?.message) {
+      once = true;
+      msg = msg.viewOnceMessage.message;
+    } else if (msg.viewOnceMessageV2?.message) {
+      once = true;
+      msg = msg.viewOnceMessageV2.message;
+    } else if (msg.viewOnceMessageV2Extension?.message) {
+      once = true;
+      msg = msg.viewOnceMessageV2Extension.message;
+    } else if (msg.ephemeralMessage?.message) {
+      msg = msg.ephemeralMessage.message;
+    } else {
+      break;
     }
-    return msg;
+  }
+  return { msg, once };
 }
 
 async function viewonceCommand(sock, chatId, message) {
-    try {
-        const context = message.message?.extendedTextMessage?.contextInfo;
-        if (!context?.quotedMessage) {
-            return sock.sendMessage(chatId, {
-                text: '❌ Reply directly to a view-once photo or video with .vv'
-            }, { quoted: message });
-        }
+  try {
+    const context =
+      message.message?.extendedTextMessage?.contextInfo;
 
-        const quoted = unwrap(context.quotedMessage);
-        const image = quoted?.imageMessage;
-        const video = quoted?.videoMessage;
-        const media = image || video;
-
-        if (!media || !media.viewOnce) {
-            return sock.sendMessage(chatId, {
-                text: '❌ No view-once image or video detected. Reply to the original view-once media.'
-            }, { quoted: message });
-        }
-
-        const type = image ? 'image' : 'video';
-        const stream = await downloadContentFromMessage(media, type);
-        const chunks = [];
-
-        for await (const chunk of stream) chunks.push(chunk);
-
-        const buffer = Buffer.concat(chunks);
-        if (!buffer.length) throw new Error('Downloaded media is empty');
-
-        await sock.sendMessage(chatId, image
-            ? { image: buffer, caption: media.caption || '' }
-            : { video: buffer, caption: media.caption || '' },
-            { quoted: message });
-
-    } catch (error) {
-        console.error('[VV ERROR]', error);
-        await sock.sendMessage(chatId, {
-            text: '❌ Could not retrieve this view-once media. Check the bot logs.'
-        }, { quoted: message });
+    if (!context?.quotedMessage) {
+      console.error('[VV] Reply to view-once media.');
+      return;
     }
+
+    const { msg, once } = unwrap(context.quotedMessage);
+    const image = msg?.imageMessage;
+    const video = msg?.videoMessage;
+    const media = image || video;
+
+    if (!media || !(once || media.viewOnce === true)) {
+      console.error('[VV] No view-once media found.');
+      return;
+    }
+
+    const type = image ? 'image' : 'video';
+    const stream = await downloadContentFromMessage(media, type);
+    const chunks = [];
+
+    for await (const chunk of stream) {
+      chunks.push(Buffer.from(chunk));
+    }
+
+    const buffer = Buffer.concat(chunks);
+    if (!buffer.length) throw new Error('Empty media');
+
+    const inbox = jidNormalizedUser(sock.user?.id || '');
+    if (!inbox.endsWith('@s.whatsapp.net')) {
+      throw new Error('Bot inbox unavailable');
+    }
+
+    await sock.sendMessage(inbox, image
+      ? { image: buffer, caption: 'Recovered view-once photo' }
+      : {
+          video: buffer,
+          mimetype: media.mimetype || 'video/mp4',
+          caption: 'Recovered view-once video'
+        }
+    );
+
+    console.log('[VV] Delivered privately to bot inbox.');
+  } catch (error) {
+    console.error('[VV ERROR]', error);
+  }
 }
 
 module.exports = viewonceCommand;

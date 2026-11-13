@@ -146,13 +146,44 @@ async function videoCommand(sock, chatId, message) {
             throw new Error('All download sources failed. The content may be unavailable or blocked in your region.');
         }
 
-        // Send video directly using the download URL
+        
+        // Download the actual MP4 before sending it to WhatsApp.
+        const downloadUrl = videoData.download || videoData.dl || videoData.url;
+        if (!downloadUrl || !/^https?:\/\//i.test(downloadUrl)) {
+            throw new Error('Invalid download URL from provider');
+        }
+
+        const response = await axios.get(downloadUrl, {
+            responseType: 'arraybuffer',
+            timeout: 90000,
+            maxRedirects: 5,
+            maxContentLength: 64 * 1024 * 1024,
+            maxBodyLength: 64 * 1024 * 1024,
+            headers: AXIOS_DEFAULTS.headers
+        });
+
+        const buffer = Buffer.from(response.data);
+        const contentType = String(
+            response.headers['content-type'] || ''
+        ).toLowerCase();
+
+        if (!buffer.length ||
+            contentType.includes('text/html') ||
+            contentType.includes('application/json')) {
+            throw new Error('Provider returned an invalid video file');
+        }
+
+        const safeTitle = String(
+            videoData.title || videoTitle || 'LordFarhan-Video'
+        ).replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 90);
+
         await sock.sendMessage(chatId, {
-            video: { url: videoData.download || videoData.dl || videoData.url },
+            video: buffer,
             mimetype: 'video/mp4',
-            fileName: `${(videoData.title || videoTitle || 'video').replace(/[^\w\s-]/g, '')}.mp4`,
-            caption: `*${videoData.title || videoTitle || 'Video'}*\n\n> *_Downloaded by LordBOTs_*`
+            fileName: (safeTitle || 'LordFarhan-Video') + '.mp4',
+            caption: `*${safeTitle || 'Video'}*\n\n> Downloaded by LORD FARHAN`
         }, { quoted: message });
+
 
 
     } catch (error) {
