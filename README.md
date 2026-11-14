@@ -158,6 +158,10 @@ It is lightweight and can be easily customized to add more commands as per your 
 The `.spotify` command uses Spotify's official catalog API and needs `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` set in the bot environment. Spotify does not provide an official API for downloading full tracks. The `.video`, `.play`, `.tiktok`, `.instagram`, `.facebook`, `.igs`, and `.igsc` commands use the installed yt-dlp extractor for public links; private or restricted media may not be available. If the operator is authorized to access media that requires a session, set `YTDLP_COOKIES_FILE` to a protected Netscape-format cookies file path on the host. Never commit or share that file.
 The `.gif` command uses GIPHY Search and requires `GIPHY_API_KEY` in the bot environment. Configure provider keys in the hosting provider’s secret/environment settings; do not commit them.
 
+AI commands use official provider APIs: `.gpt`, `.imagine`, and `.dalle` use OpenAI; `.gemini` uses Google Gemini; `.flux` uses Black Forest Labs FLUX; and `.sora` uses Google Veo 3.1 because the OpenAI Videos/Sora API was retired. The `.dalle` command is retained as an alias for current OpenAI image generation; it does not call the retired DALL·E API. `.sora` returns an 8-second, 720p portrait video.
+
+Set `OPENAI_API_KEY`, `GEMINI_API_KEY` (or `GOOGLE_API_KEY` for `.sora`), and `BFL_API_KEY` in the hosting provider’s secret/environment settings. Optional model overrides are `OPENAI_TEXT_MODEL`, `OPENAI_IMAGE_MODEL`, `GEMINI_TEXT_MODEL`, `GEMINI_VIDEO_MODEL`, and `BFL_FLUX_MODEL`; defaults are listed in `.env.example`. The local `.env` file is ignored by Git. Never add real keys to source files, commit them, or print them in logs. AI provider usage may incur charges; configure provider billing alerts/limits. The bot applies per-sender cooldowns to limit accidental repeated requests.
+
 ### Step-by-Step Setup
 
 1. **Clone the repository:**

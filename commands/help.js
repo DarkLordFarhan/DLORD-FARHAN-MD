@@ -144,8 +144,9 @@ async function helpCommand(sock, chatId, message) {
 ║ 💎 .gpt <question>
 ║ 💎 .gemini <question>
 ║ 💎 .imagine <prompt>
+║ 💎 .dalle <prompt> (OpenAI image alias)
 ║ 💎 .flux <prompt>
-║ 💎 .sora <prompt>
+║ 💎 .sora <prompt> (Veo video)
 ╚══════════════════════════════════════════════╝
 
 ╔══════════════════ 🎯 FUN COMMANDS ══════════════════╗

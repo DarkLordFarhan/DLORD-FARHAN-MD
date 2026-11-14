@@ -1,105 +1,139 @@
-const axios = require('axios');
-const fetch = require('node-fetch');
+const { extractRawMessageText, reserveAiCooldown } = require('../lib/ai-rate-limit');
+
+const OPENAI_RESPONSES_URL = 'https://api.openai.com/v1/responses';
+const GEMINI_INTERACTIONS_URL = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+const MAX_PROMPT_LENGTH = 6000;
+
+function getOpenAIText(data) {
+    if (typeof data.output_text === 'string' && data.output_text.trim()) return data.output_text.trim();
+    return (data.output || [])
+        .flatMap(item => item.content || [])
+        .filter(item => item.type === 'output_text' && typeof item.text === 'string')
+        .map(item => item.text.trim())
+        .filter(Boolean)
+        .join('\n\n');
+}
+
+function getGeminiText(data) {
+    if (typeof data.output_text === 'string' && data.output_text.trim()) return data.output_text.trim();
+    return (data.steps || [])
+        .filter(step => step.type === 'model_output')
+        .flatMap(step => step.content || [])
+        .filter(item => item.type === 'text' && typeof item.text === 'string')
+        .map(item => item.text.trim())
+        .filter(Boolean)
+        .join('\n\n');
+}
+
+function getFailureMessage(provider, status) {
+    if (status === 401 || status === 403) return `${provider} rejected its API key or this project lacks access to the selected model. Check the key and model access.`;
+    if (status === 402) return `${provider} requires an active billing account or available credits.`;
+    if (status === 429) return `${provider} quota or rate limit reached. Try again later or check provider usage limits.`;
+    if (status) return `${provider} returned an API error (${status}). Try again later.`;
+    return `${provider} could not be reached. Try again later.`;
+}
 
 async function aiCommand(sock, chatId, message) {
-    try {
-        const text = message.message?.conversation || message.message?.extendedTextMessage?.text;
-        
-        if (!text) {
-            return await sock.sendMessage(chatId, { 
-                text: "Please provide a question after .gpt or .gemini\n\nExample: .gpt write a basic html code"
-            }, {
-                quoted: message
-            });
-        }
+    const rawText = extractRawMessageText(message).trim();
+    const firstSpace = rawText.search(/\s/);
+    const command = (firstSpace === -1 ? rawText : rawText.slice(0, firstSpace)).toLowerCase();
+    const query = firstSpace === -1 ? '' : rawText.slice(firstSpace).trim();
 
-        // Get the command and query
-        const parts = text.split(' ');
-        const command = parts[0].toLowerCase();
-        const query = parts.slice(1).join(' ').trim();
-
-        if (!query) {
-            return await sock.sendMessage(chatId, { 
-                text: "Please provide a question after .gpt or .gemini"
-            }, {quoted:message});
-        }
-
-        try {
-            // Show processing message
-            await sock.sendMessage(chatId, {
-                react: { text: '🤖', key: message.key }
-            });
-
-            if (command === '.gpt') {
-                // Call the GPT API
-                const response = await axios.get(`https://zellapi.autos/ai/chatbot?text=${encodeURIComponent(query)}`);
-                
-                if (response.data && response.data.status && response.data.result) {
-                    const answer = response.data.result;
-                    await sock.sendMessage(chatId, {
-                        text: answer
-                    }, {
-                        quoted: message
-                    });
-                    
-                } else {
-                    throw new Error('Invalid response from API');
-                }
-            } else if (command === '.gemini') {
-                const apis = [
-                    `https://vapis.my.id/api/gemini?q=${encodeURIComponent(query)}`,
-                    `https://api.siputzx.my.id/api/ai/gemini-pro?content=${encodeURIComponent(query)}`,
-                    `https://api.ryzendesu.vip/api/ai/gemini?text=${encodeURIComponent(query)}`,
-                    `https://zellapi.autos/ai/chatbot?text=${encodeURIComponent(query)}`,
-                    `https://api.giftedtech.my.id/api/ai/geminiai?apikey=gifted&q=${encodeURIComponent(query)}`,
-                    `https://api.giftedtech.my.id/api/ai/geminiaipro?apikey=gifted&q=${encodeURIComponent(query)}`
-                ];
-
-                for (const api of apis) {
-                    try {
-                        const response = await fetch(api);
-                        const data = await response.json();
-
-                        if (data.message || data.data || data.answer || data.result) {
-                            const answer = data.message || data.data || data.answer || data.result;
-                            await sock.sendMessage(chatId, {
-                                text: answer
-                            }, {
-                                quoted: message
-                            });
-                            
-                            return;
-                        }
-                    } catch (e) {
-                        continue;
-                    }
-                }
-                throw new Error('All Gemini APIs failed');
-            }
-        } catch (error) {
-            console.error('API Error:', error);
-            await sock.sendMessage(chatId, {
-                text: "❌ Failed to get response. Please try again later.",
-                contextInfo: {
-                    mentionedJid: [message.key.participant || message.key.remoteJid],
-                    quotedMessage: message.message
-                }
-            }, {
-                quoted: message
-            });
-        }
-    } catch (error) {
-        console.error('AI Command Error:', error);
+    if (command !== '.gpt' && command !== '.gemini') {
         await sock.sendMessage(chatId, {
-            text: "❌ An error occurred. Please try again later.",
-            contextInfo: {
-                mentionedJid: [message.key.participant || message.key.remoteJid],
-                quotedMessage: message.message
-            }
-        }, {
-            quoted: message
+            text: 'Use .gpt <question> or .gemini <question>.'
+        }, { quoted: message });
+        return;
+    }
+    if (!query) {
+        await sock.sendMessage(chatId, {
+            text: `Please provide a question. Example: ${command} explain photosynthesis in simple terms.`
+        }, { quoted: message });
+        return;
+    }
+    if (query.length > MAX_PROMPT_LENGTH) {
+        await sock.sendMessage(chatId, {
+            text: `Please keep the question under ${MAX_PROMPT_LENGTH} characters.`
+        }, { quoted: message });
+        return;
+    }
+
+    const provider = command === '.gpt' ? 'OpenAI' : 'Gemini';
+    const keyName = command === '.gpt' ? 'OPENAI_API_KEY' : 'GEMINI_API_KEY';
+    const apiKey = process.env[keyName];
+    if (!apiKey) {
+        await sock.sendMessage(chatId, {
+            text: `${keyName} is not configured in the bot environment.`
+        }, { quoted: message });
+        return;
+    }
+
+    const waitSeconds = reserveAiCooldown(message, 10000);
+    if (waitSeconds) {
+        await sock.sendMessage(chatId, {
+            text: `Please wait ${waitSeconds} seconds before sending another AI request.`
+        }, { quoted: message });
+        return;
+    }
+
+    try {
+        await sock.sendMessage(chatId, { react: { text: '🤖', key: message.key } });
+        let url;
+        let headers;
+        let body;
+
+        if (command === '.gpt') {
+            url = OPENAI_RESPONSES_URL;
+            headers = {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            };
+            body = {
+                model: process.env.OPENAI_TEXT_MODEL || 'gpt-6.1-terra',
+                input: query,
+                max_output_tokens: 800,
+                store: false
+            };
+        } else {
+            url = GEMINI_INTERACTIONS_URL;
+            headers = {
+                'x-goog-api-key': apiKey,
+                'Content-Type': 'application/json'
+            };
+            body = {
+                model: process.env.GEMINI_TEXT_MODEL || 'gemini-3.8-flash',
+                input: query,
+                generation_config: { max_output_tokens: 800 },
+                store: false
+            };
+        }
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(60000),
+            redirect: 'error'
         });
+        if (!response.ok) {
+            console.error(`[AI] ${provider} API status: ${response.status}`);
+            await sock.sendMessage(chatId, {
+                text: getFailureMessage(provider, response.status)
+            }, { quoted: message });
+            return;
+        }
+
+        const data = await response.json();
+        const answer = command === '.gpt' ? getOpenAIText(data) : getGeminiText(data);
+        if (!answer) throw new Error('The provider returned an empty response.');
+
+        await sock.sendMessage(chatId, { text: answer }, { quoted: message });
+    } catch (error) {
+        console.error(`[AI] ${provider} request failed:`, error.name || 'Error');
+        await sock.sendMessage(chatId, {
+            text: `${provider} could not complete the request. Check the provider key/model and try again.`
+        }, { quoted: message });
     }
 }
 
-module.exports = aiCommand; 
+module.exports = aiCommand;
