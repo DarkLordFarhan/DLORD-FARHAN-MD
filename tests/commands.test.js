@@ -87,3 +87,31 @@ test('news responds safely when the feed is unavailable', async () => {
     );
     assert.match(sent[0][1].text, /could not fetch headlines/);
 });
+
+
+test('help sends the complete Ephoto, GIF, and AI menu in a separate text message', async () => {
+    const helpCommand = require('../commands/help');
+    const sent = [];
+    await helpCommand(
+        { sendMessage: async (...args) => sent.push(args) },
+        'menu-chat',
+        { key: { id: 'menu-test' } }
+    );
+
+    const menuText = sent.map(([, payload]) => payload.text || '').find(text => text.includes('.metallic'));
+    assert.ok(menuText, 'expected full menu text to be sent separately');
+    assert.ok(menuText.length > 1024, 'menu should remain complete as a text message');
+    for (const command of [
+        '.metallic', '.ice', '.snow', '.impressive', '.matrix', '.light', '.neon',
+        '.devil', '.purple', '.thunder', '.leaves', '.1917', '.arena', '.hacker',
+        '.sand', '.blackpink', '.glitch', '.fire', '.gif <search term>',
+        '.gpt <question>', '.gemini <question>', '.imagine <prompt>',
+        '.dalle <prompt>', '.flux <prompt>', '.sora <prompt>',
+        '.vv (reply to view-once photo/video)'
+    ]) {
+        assert.ok(menuText.includes(command), `expected menu to include ${command}`);
+    }
+
+    const imageMessage = sent.find(([, payload]) => payload.image);
+    if (imageMessage) assert.ok(imageMessage[1].caption.length < 1024, 'image caption should stay below the WhatsApp caption limit');
+});

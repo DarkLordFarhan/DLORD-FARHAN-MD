@@ -132,3 +132,14 @@ test('`.vv` normalizes the bot JID and delivers view-once media to its inbox', a
     assert.equal(inboxDelivery[1].caption.includes('view-once photo'), true);
     assert.ok(sent.some(([recipient, payload]) => recipient === 'group@g.us' && /Check your bot inbox/.test(payload.text || '')));
 });
+
+
+test('`.vv` explains that it must directly reply to view-once media', async () => {
+    const sent = [];
+    await viewonceCommand(
+        { sendMessage: async (...args) => sent.push(args) },
+        'chat',
+        { key: { id: 'vv-no-quote' }, message: { conversation: '.vv' } }
+    );
+    assert.match(sent[0][1].text, /Reply directly to a view-once photo or video with \.vv/);
+});

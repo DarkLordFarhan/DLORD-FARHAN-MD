@@ -344,6 +344,11 @@ async function handleMessages(sock, messageUpdate, printLog) {
         }
         // In private mode, only owner/sudo can run commands
         if (!isPublic && !isOwnerOrSudoCheck) {
+            if (userMessage === '.vv') {
+                await sock.sendMessage(chatId, {
+                    text: '🔒 The bot is in private mode. Only the owner or sudo users can use .vv.'
+                }, { quoted: message });
+            }
             return;
         }
 

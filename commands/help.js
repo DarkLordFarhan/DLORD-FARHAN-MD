@@ -33,7 +33,7 @@ async function helpCommand(sock, chatId, message) {
 ║ 💎 .8ball <question>
 ║ 💎 .groupinfo
 ║ 💎 .staff / .admins
-║ 💎 .vv
+║ 💎 .vv (reply to view-once photo/video)
 ║ 💎 .trt <text> <lang>
 ║ 💎 .ss <link>
 ║ 💎 .jid
@@ -192,7 +192,14 @@ async function helpCommand(sock, chatId, message) {
             const imageBuffer = fs.readFileSync(imagePath);
             await sock.sendMessage(chatId, {
                 image: imageBuffer,
-                caption: helpMessage,
+                caption: 'Command menu',
+                contextInfo: {
+                    forwardingScore: 1,
+                    isForwarded: true
+                }
+            }, { quoted: message });
+            await sock.sendMessage(chatId, {
+                text: helpMessage,
                 contextInfo: {
                     forwardingScore: 1,
                     isForwarded: true
