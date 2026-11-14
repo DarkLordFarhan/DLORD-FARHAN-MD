@@ -201,31 +201,26 @@ async function helpCommand(sock, chatId, message) {
     };
 
     try {
-        const menuImagePath = path.join(__dirname, '../assets/command-menu.png');
-        await sock.sendMessage(chatId, {
-            image: fs.readFileSync(menuImagePath),
-            caption: introMessage,
-            contextInfo
-        }, { quoted: message });
-    } catch (error) {
-        console.error('Error sending combined menu image:', error);
         const bannerPath = path.join(__dirname, '../assets/bot_image.jpg');
-        try {
-            if (fs.existsSync(bannerPath)) {
-                await sock.sendMessage(chatId, {
-                    image: fs.readFileSync(bannerPath),
-                    caption: introMessage,
-                    contextInfo
-                }, { quoted: message });
-            }
-            await sock.sendMessage(chatId, { text: scrolledMenu, contextInfo }, { quoted: message });
-        } catch (fallbackError) {
-            console.error('Error sending text menu fallback:', fallbackError);
+        if (fs.existsSync(bannerPath)) {
             await sock.sendMessage(chatId, {
-                text: `${introMessage}\n\n${scrolledMenu}`,
+                image: fs.readFileSync(bannerPath),
+                caption: introMessage,
                 contextInfo
             }, { quoted: message });
+        } else {
+            await sock.sendMessage(chatId, { text: introMessage, contextInfo }, { quoted: message });
         }
+    } catch (error) {
+        console.error('Error in help banner:', error);
+        await sock.sendMessage(chatId, { text: introMessage, contextInfo }, { quoted: message });
+    }
+
+    try {
+        await sock.sendMessage(chatId, { text: scrolledMenu, contextInfo }, { quoted: message });
+    } catch (error) {
+        console.error('Error in help menu:', error);
+        await sock.sendMessage(chatId, { text: scrolledMenu });
     }
 }
 
