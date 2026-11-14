@@ -1,5 +1,3 @@
-const { igdl } = require('ruhend-scraper');
-const axios = require('axios');
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -7,6 +5,13 @@ const webp = require('node-webpmux');
 const crypto = require('crypto');
 const settings = require('../settings');
 const { stickercropFromBuffer } = require('./stickercrop');
+const {
+    cleanUrlCandidate,
+    downloadMedia,
+    formatDownloaderError,
+    getCommandArgument,
+    validateMediaUrl
+} = require('../lib/media-downloader');
 
 async function convertBufferToStickerWebp(inputBuffer, isAnimated, cropSquare) {
     const tmpDir = path.join(process.cwd(), 'tmp');
@@ -137,135 +142,64 @@ async function convertBufferToStickerWebp(inputBuffer, isAnimated, cropSquare) {
     return finalBuffer;
 }
 
-async function fetchBufferFromUrl(url) {
-    // Attempt 1: simple arraybuffer with generous limits
-    try {
-        const res = await axios.get(url, {
-            responseType: 'arraybuffer',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': '*/*',
-                // Some CDNs misbehave with Referer/Origin; omit to reduce blocks
-                'Accept-Encoding': 'identity'
-            },
-            timeout: 30000,
-            maxContentLength: Infinity,
-            maxBodyLength: Infinity,
-            decompress: true,
-            validateStatus: s => s >= 200 && s < 400
-        });
-        return Buffer.from(res.data);
-    } catch (e1) {
-        // Attempt 2: stream mode read fully
-        try {
-            const res = await axios.get(url, {
-                responseType: 'stream',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                    'Accept': '*/*',
-                    'Accept-Encoding': 'identity'
-                },
-                timeout: 40000,
-                maxContentLength: Infinity,
-                maxBodyLength: Infinity,
-                validateStatus: s => s >= 200 && s < 400
-            });
-            const chunks = [];
-            await new Promise((resolve, reject) => {
-                res.data.on('data', c => chunks.push(c));
-                res.data.on('end', resolve);
-                res.data.on('error', reject);
-            });
-            return Buffer.concat(chunks);
-        } catch (e2) {
-            console.error('Both axios download attempts failed:', e1?.message || e1, e2?.message || e2);
-            throw e2;
-        }
-    }
-}
-
 async function igsCommand(sock, chatId, message, crop = false) {
     try {
-        const text = message.message?.conversation || message.message?.extendedTextMessage?.text || '';
-        const urlMatch = text.match(/https?:\/\/\S+/);
-        if (!urlMatch) {
-            await sock.sendMessage(chatId, { text: `Send an Instagram post/reel link.\nUsage:\n.igs <url>\n.igsc <url>` }, { quoted: message });
+        const input = getCommandArgument(message);
+        const url = cleanUrlCandidate(input);
+        if (!url) {
+            await sock.sendMessage(chatId, { text: 'Send an Instagram post, Reel, or carousel link.\nUsage:\n.igs <url>\n.igsc <url>' }, { quoted: message });
             return;
         }
 
+        const instagramUrl = validateMediaUrl(url, 'instagram');
         await sock.sendMessage(chatId, { react: { text: '🔄', key: message.key } });
+        const mediaFiles = await downloadMedia(instagramUrl, {
+            platform: 'instagram',
+            kind: 'video',
+            playlist: true,
+            maxFiles: 10
+        });
 
-        const downloadData = await igdl(urlMatch[0]).catch(() => null);
-        if (!downloadData || !downloadData.data) {
-            await sock.sendMessage(chatId, { text: '❌ Failed to fetch media from Instagram link.' }, { quoted: message });
-            return;
-        }
-        // Raw items
-        const rawItems = (downloadData?.data || []).filter(m => m && m.url);
-        // Deduplicate by exact URL first
-        const seenUrls = new Set();
-        const items = [];
-        for (const m of rawItems) {
-            if (!seenUrls.has(m.url)) {
-                seenUrls.add(m.url);
-                items.push(m);
-            }
-        }
-        if (items.length === 0) {
-            await sock.sendMessage(chatId, { text: '❌ No media found at the provided link.' }, { quoted: message });
-            return;
-        }
-
-        // Process up to 10 media items to avoid spam/timeouts
-        const maxItems = Math.min(items.length, 10);
         const seenHashes = new Set();
-        for (let i = 0; i < maxItems; i++) {
+        let sentCount = 0;
+        for (const media of mediaFiles) {
             try {
-                const media = items[i];
-                const mediaUrl = media.url;
-                const isVideo = (media?.type === 'video') || /\.(mp4|mov|avi|mkv|webm)$/i.test(mediaUrl);
-
-                const buffer = await fetchBufferFromUrl(mediaUrl);
-
-                // Content-based dedupe: skip if identical media already processed
-                const hash = require('crypto').createHash('sha1').update(buffer).digest('hex');
-                if (seenHashes.has(hash)) {
-                    continue;
-                }
+                const buffer = media.buffer;
+                const isVideo = /^(mp4|mov|avi|mkv|webm)$/i.test(media.extension);
+                const hash = crypto.createHash('sha1').update(buffer).digest('hex');
+                if (seenHashes.has(hash)) continue;
                 seenHashes.add(hash);
 
                 let stickerBuffer = crop
                     ? await stickercropFromBuffer(buffer, isVideo)
                     : await convertBufferToStickerWebp(buffer, isVideo, false);
 
-                // Ensure final size under ~900KB; otherwise try a harsher mini fallback
-                let finalSticker = stickerBuffer;
-                if (finalSticker.length > 900 * 1024) {
+                if (!stickerBuffer?.length) throw new Error('Sticker conversion returned an empty file');
+                if (stickerBuffer.length > 900 * 1024) {
                     try {
                         const fallback = await forceMiniSticker(buffer, isVideo, crop);
-                        if (fallback && fallback.length <= 900 * 1024) {
-                            finalSticker = fallback;
-                        }
-                    } catch (e) {
-                        console.error('forceMiniSticker error:', e);
+                        if (fallback && fallback.length <= 900 * 1024) stickerBuffer = fallback;
+                    } catch (error) {
+                        console.error('[IGS] Mini sticker fallback failed:', error?.message || error);
                     }
                 }
 
-                await sock.sendMessage(chatId, { sticker: finalSticker }, { quoted: message });
-
-                // Small delay to avoid rate limiting
-                if (i < maxItems - 1) {
-                    await new Promise(r => setTimeout(r, 800));
-                }
-            } catch (perItemErr) {
-                console.error('IGS item error:', perItemErr);
-                // continue with next item
+                await sock.sendMessage(chatId, { sticker: stickerBuffer }, { quoted: message });
+                sentCount++;
+                if (sentCount < mediaFiles.length) await new Promise(resolve => setTimeout(resolve, 800));
+            } catch (error) {
+                console.error('[IGS] Item processing failed:', error?.message || error);
             }
         }
 
-    } catch (err) {
-        console.error('Error in igs command:', err);
-        await sock.sendMessage(chatId, { text: 'Failed to create sticker from Instagram link.' }, { quoted: message });
+        if (!sentCount) {
+            await sock.sendMessage(chatId, { text: '❌ No Instagram media could be converted to a sticker.' }, { quoted: message });
+        }
+    } catch (error) {
+        console.error('[IGS] Download failed:', error?.message || error);
+        await sock.sendMessage(chatId, {
+            text: `❌ ${formatDownloaderError(error)}`
+        }, { quoted: message });
     }
 }
 
@@ -316,5 +250,3 @@ async function forceMiniSticker(inputBuffer, isVideo, cropSquare) {
 }
 
 module.exports = { igsCommand };
-
-

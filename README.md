@@ -152,7 +152,10 @@ It is lightweight and can be easily customized to add more commands as per your 
 ### Prerequisites
 
 - Node.js installed on your system
+- Python 3.11 or newer and FFmpeg for the media downloader
 - Git installed (for cloning the repository)
+
+The `.spotify` command uses Spotify's official catalog API and needs `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` set in the bot environment. Spotify does not provide an official API for downloading full tracks. The `.video`, `.play`, `.tiktok`, `.instagram`, `.facebook`, `.igs`, and `.igsc` commands use the installed yt-dlp extractor for public links; private or restricted media may not be available. If the operator is authorized to access media that requires a session, set `YTDLP_COOKIES_FILE` to a protected Netscape-format cookies file path on the host. Never commit or share that file.
 
 ### Step-by-Step Setup
 

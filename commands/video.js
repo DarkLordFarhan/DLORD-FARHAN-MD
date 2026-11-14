@@ -1,211 +1,59 @@
-const axios = require('axios');
 const yts = require('yt-search');
-
-const AXIOS_DEFAULTS = {
-    timeout: 60000,
-    headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*'
-    }
-};
-
-async function tryRequest(getter, attempts = 3) {
-    let lastError;
-    for (let attempt = 1; attempt <= attempts; attempt++) {
-        try {
-            return await getter();
-        } catch (err) {
-            lastError = err;
-            if (attempt < attempts) {
-                await new Promise(r => setTimeout(r, 1000 * attempt));
-            }
-        }
-    }
-    throw lastError;
-}
-
-// EliteProTech API - Primary
-async function getEliteProTechVideoByUrl(youtubeUrl) {
-    const apiUrl = `https://eliteprotech-apis.zone.id/ytdown?url=${encodeURIComponent(youtubeUrl)}&format=mp4`;
-    const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.success && res?.data?.downloadURL) {
-        return {
-            download: res.data.downloadURL,
-            title: res.data.title
-        };
-    }
-    throw new Error('EliteProTech ytdown returned no download');
-}
-
-async function getYupraVideoByUrl(youtubeUrl) {
-    const apiUrl = `https://api.yupra.my.id/api/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`;
-    const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    if (res?.data?.success && res?.data?.data?.download_url) {
-        return {
-            download: res.data.data.download_url,
-            title: res.data.data.title,
-            thumbnail: res.data.data.thumbnail
-        };
-    }
-    throw new Error('Yupra returned no download');
-}
-
-async function getOkatsuVideoByUrl(youtubeUrl) {
-    const apiUrl = `https://okatsu-rolezapiiz.vercel.app/downloader/ytmp4?url=${encodeURIComponent(youtubeUrl)}`;
-    const res = await tryRequest(() => axios.get(apiUrl, AXIOS_DEFAULTS));
-    // shape: { status, creator, url, result: { status, title, mp4 } }
-    if (res?.data?.result?.mp4) {
-        return { download: res.data.result.mp4, title: res.data.result.title };
-    }
-    throw new Error('Okatsu ytmp4 returned no mp4');
-}
+const {
+    cleanUrlCandidate,
+    downloadMedia,
+    formatDownloaderError,
+    getCommandArgument,
+    validateMediaUrl
+} = require('../lib/media-downloader');
 
 async function videoCommand(sock, chatId, message) {
     try {
-        const text = message.message?.conversation || message.message?.extendedTextMessage?.text;
-        const searchQuery = text.split(' ').slice(1).join(' ').trim();
-        
-        
-        if (!searchQuery) {
-            await sock.sendMessage(chatId, { text: 'What video do you want to download?' }, { quoted: message });
+        const query = getCommandArgument(message);
+        if (!query) {
+            await sock.sendMessage(chatId, { text: 'Usage: .video <YouTube link or search terms>' }, { quoted: message });
             return;
         }
 
-        // Determine if input is a YouTube link
-        let videoUrl = '';
-        let videoTitle = '';
-        let videoThumbnail = '';
-        if (searchQuery.startsWith('http://') || searchQuery.startsWith('https://')) {
-            videoUrl = searchQuery;
+        let videoUrl = cleanUrlCandidate(query);
+        let title = '';
+        let thumbnail = '';
+
+        if (videoUrl) {
+            videoUrl = validateMediaUrl(videoUrl, 'youtube');
         } else {
-            // Search YouTube for the video
-            const { videos } = await yts(searchQuery);
-            if (!videos || videos.length === 0) {
-                await sock.sendMessage(chatId, { text: 'No videos found!' }, { quoted: message });
+            const search = await yts(query);
+            const video = search?.videos?.[0];
+            if (!video?.url) {
+                await sock.sendMessage(chatId, { text: 'No YouTube videos found for that search.' }, { quoted: message });
                 return;
             }
-            videoUrl = videos[0].url;
-            videoTitle = videos[0].title;
-            videoThumbnail = videos[0].thumbnail;
+            videoUrl = validateMediaUrl(video.url, 'youtube');
+            title = video.title || '';
+            thumbnail = video.thumbnail || '';
         }
 
-        // Send thumbnail immediately
-        try {
-            const ytId = (videoUrl.match(/(?:youtu\.be\/|v=)([a-zA-Z0-9_-]{11})/) || [])[1];
-            const thumb = videoThumbnail || (ytId ? `https://i.ytimg.com/vi/${ytId}/sddefault.jpg` : undefined);
-            const captionTitle = videoTitle || searchQuery;
-            if (thumb) {
-                await sock.sendMessage(chatId, {
-                    image: { url: thumb },
-                    caption: `*${captionTitle}*\nDownloading...`
-                }, { quoted: message });
-            }
-        } catch (e) { console.error('[VIDEO] thumb error:', e?.message || e); }
-        
-
-        // Validate YouTube URL
-        let urls = videoUrl.match(/(?:https?:\/\/)?(?:youtu\.be\/|(?:www\.|m\.)?youtube\.com\/(?:watch\?v=|v\/|embed\/|shorts\/|playlist\?list=)?)([a-zA-Z0-9_-]{11})/gi);
-        if (!urls) {
-            await sock.sendMessage(chatId, { text: 'This is not a valid YouTube link!' }, { quoted: message });
-            return;
+        if (thumbnail) {
+            await sock.sendMessage(chatId, {
+                image: { url: thumbnail },
+                caption: `*${title || 'YouTube video'}*\nDownloading...`
+            }, { quoted: message });
         }
 
-        // Try multiple APIs with fallback chain: EliteProTech -> Yupra -> Okatsu
-        let videoData;
-        let downloadSuccess = false;
-        
-        // List of API methods to try
-        const apiMethods = [
-            { name: 'EliteProTech', method: () => getEliteProTechVideoByUrl(videoUrl) },
-            { name: 'Yupra', method: () => getYupraVideoByUrl(videoUrl) },
-            { name: 'Okatsu', method: () => getOkatsuVideoByUrl(videoUrl) }
-        ];
-        
-        // Try each provider and preserve its actual failure reason.
-        const providerErrors = [];
-
-        for (const apiMethod of apiMethods) {
-            try {
-                const result = await apiMethod.method();
-                const directUrl = result?.download || result?.dl || result?.url;
-
-                if (!directUrl || !/^https?:\\/\\//i.test(directUrl)) {
-                    throw new Error('Provider returned no valid download URL');
-                }
-
-                videoData = result;
-                downloadSuccess = true;
-                console.log('[VIDEO] Provider succeeded:', apiMethod.name);
-                break;
-            } catch (apiErr) {
-                const reason = apiErr.response?.status
-                    ? 'HTTP ' + apiErr.response.status
-                    : apiErr.code || apiErr.message || 'Unknown error';
-
-                providerErrors.push(apiMethod.name + ': ' + reason);
-                console.error('[VIDEO] Provider failed:', apiMethod.name, reason);
-            }
-        }
-
-        if (!downloadSuccess || !videoData) {
-            throw new Error('All providers failed: ' + providerErrors.join(' | '));
-        }
-
-        
-        // Download the actual MP4 before sending it to WhatsApp.
-        const downloadUrl = videoData.download || videoData.dl || videoData.url;
-        if (!downloadUrl || !/^https?:\/\//i.test(downloadUrl)) {
-            throw new Error('Invalid download URL from provider');
-        }
-
-        const response = await axios.get(downloadUrl, {
-            responseType: 'arraybuffer',
-            timeout: 90000,
-            maxRedirects: 5,
-            maxContentLength: 64 * 1024 * 1024,
-            maxBodyLength: 64 * 1024 * 1024,
-            headers: AXIOS_DEFAULTS.headers
-        });
-
-        const buffer = Buffer.from(response.data);
-        const contentType = String(
-            response.headers['content-type'] || ''
-        ).toLowerCase();
-
-        if (!buffer.length ||
-            contentType.includes('text/html') ||
-            contentType.includes('application/json')) {
-            throw new Error('Provider returned an invalid video file');
-        }
-
-        const safeTitle = String(
-            videoData.title || videoTitle || 'LordFarhan-Video'
-        ).replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 90);
-
+        const [media] = await downloadMedia(videoUrl, { platform: 'youtube', kind: 'video' });
+        const safeTitle = String(title || 'YouTube-Video').replace(/[\\/:*?"<>|\r\n]+/g, ' ').trim().slice(0, 90) || 'YouTube-Video';
         await sock.sendMessage(chatId, {
-            video: buffer,
-            mimetype: 'video/mp4',
-            fileName: (safeTitle || 'LordFarhan-Video') + '.mp4',
-            caption: `*${safeTitle || 'Video'}*\n\n> Downloaded by LORD FARHAN`
+            video: media.buffer,
+            mimetype: media.mimetype,
+            fileName: `${safeTitle}.${media.extension}`,
+            caption: `*${safeTitle}*\n\nDownloaded by LORD FARHAN`
         }, { quoted: message });
-
-
-
     } catch (error) {
-        console.error('[VIDEO] Command Error:', error?.message || error);
-        
-        // Provide more specific error messages
-        let errorMessage = '❌ Failed to download video.';
-        if (error.response?.status === 451 || error.status === 451) {
-            errorMessage = '❌ Provider returned HTTP 451: content unavailable.';
-        } else if (error.message) {
-            errorMessage = '❌ Video error: ' + error.message.slice(0, 650);
-        }
-        
-        await sock.sendMessage(chatId, { 
-            text: errorMessage 
+        console.error('[VIDEO] Download failed:', error?.message || error);
+        await sock.sendMessage(chatId, {
+            text: `❌ ${formatDownloaderError(error)}`
         }, { quoted: message });
     }
 }
 
-module.exports = videoCommand; 
+module.exports = videoCommand;

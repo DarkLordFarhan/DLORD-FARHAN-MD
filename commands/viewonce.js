@@ -1,4 +1,8 @@
-const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const { downloadContentFromMessage, jidNormalizedUser } = require('@whiskeysockets/baileys');
+
+function normalizeBotInboxJid(jid) {
+    return jidNormalizedUser(String(jid || ''));
+}
 
 function unwrap(message) {
     let current = message;
@@ -68,9 +72,9 @@ async function viewonceCommand(sock, chatId, message) {
         const buffer = Buffer.concat(chunks);
         if (!buffer.length) throw new Error('Downloaded media is empty');
 
-        const inbox = sock.user?.id?.split(':')[0];
+        const inbox = normalizeBotInboxJid(sock.user?.id);
 
-        if (!inbox) throw new Error('Bot WhatsApp account unavailable');
+        if (!inbox.endsWith('@s.whatsapp.net')) throw new Error('Bot WhatsApp account unavailable');
 
         await sock.sendMessage(inbox, image
             ? {
@@ -100,3 +104,4 @@ async function viewonceCommand(sock, chatId, message) {
 }
 
 module.exports = viewonceCommand;
+module.exports.normalizeBotInboxJid = normalizeBotInboxJid;
