@@ -198,3 +198,109 @@ test('`.sora` generates and delivers a Veo video using the Gemini key', async ()
         restoreEnv('GEMINI_API_KEY', oldKey);
     }
 });
+
+
+test('`.gpt` and `.gemini` use AI Horde anonymous text fallback only when their provider keys are absent', async () => {
+    const oldFetch = global.fetch;
+    const oldOpenAiKey = process.env.OPENAI_API_KEY;
+    const oldGeminiKey = process.env.GEMINI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    const calls = [];
+    global.fetch = async (url, options = {}) => {
+        calls.push({ url: String(url), options });
+        if (String(url) === 'https://oai.aihorde.net/v1/models') {
+            return jsonResponse({
+                data: [
+                    {
+                        id: 'koboldcpp/Llama-3.2-3B-Instruct',
+                        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+                        top_provider: { max_completion_tokens: 512 },
+                        x_horde: { workers: 2, queued: 1 }
+                    },
+                    {
+                        id: 'koboldcpp/uncensored-heretic',
+                        architecture: { input_modalities: ['text'], output_modalities: ['text'] },
+                        top_provider: { max_completion_tokens: 1024 },
+                        x_horde: { workers: 10, queued: 0 }
+                    }
+                ]
+            });
+        }
+        if (String(url) === 'https://oai.aihorde.net/v1/chat/completions') {
+            return jsonResponse({ choices: [{ message: { content: 'Mock AI Horde answer' } }] });
+        }
+        throw new Error(`Unexpected mocked URL: ${url}`);
+    };
+    try {
+        const sock = makeSocket();
+        await aiCommand(sock, 'chat', makeMessage('.gpt A public fallback test', 'horde-gpt'));
+        await aiCommand(sock, 'chat', makeMessage('.gemini Another public fallback test', 'horde-gemini'));
+
+        assert.equal(calls.length, 4);
+        for (const call of calls) assert.equal(call.options.redirect, 'error');
+        for (const call of calls.filter(call => call.url.endsWith('/chat/completions'))) {
+            assert.equal(call.options.headers.Authorization, 'Bearer 0000000000');
+            const body = JSON.parse(call.options.body);
+            assert.deepEqual(body.models, ['koboldcpp/Llama-3.2-3B-Instruct']);
+            assert.equal(body.max_tokens, 512);
+            assert.equal(body.horde.include_reasoning, false);
+        }
+        assert.equal(sock.sent.filter(item => item.payload.text === 'Mock AI Horde answer').length, 2);
+        assert.ok(sock.sent.some(item => item.payload.text?.includes('sent to volunteer-run workers')));
+    } finally {
+        global.fetch = oldFetch;
+        restoreEnv('OPENAI_API_KEY', oldOpenAiKey);
+        restoreEnv('GEMINI_API_KEY', oldGeminiKey);
+    }
+});
+
+test('`.imagine` and `.flux` use AI Horde anonymous image fallback and disclose LAION sharing', async () => {
+    const oldFetch = global.fetch;
+    const oldOpenAiKey = process.env.OPENAI_API_KEY;
+    const oldBflKey = process.env.BFL_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.BFL_API_KEY;
+    const calls = [];
+    let requestNumber = 0;
+    const imagePayload = Buffer.from('mock-webp-image').toString('base64');
+    global.fetch = async (url, options = {}) => {
+        calls.push({ url: String(url), options });
+        if (String(url) === 'https://aihorde.net/api/v2/generate/async') {
+            requestNumber += 1;
+            return jsonResponse({ id: `11111111-1111-4111-8111-${String(requestNumber).padStart(12, '0')}` }, 202);
+        }
+        if (String(url).includes('/generate/check/')) return jsonResponse({ done: true, is_possible: true });
+        if (String(url).includes('/generate/status/') && options.method !== 'DELETE') {
+            return jsonResponse({ generations: [{ img: imagePayload, state: 'ok', censored: false }] });
+        }
+        throw new Error(`Unexpected mocked URL: ${url}`);
+    };
+    try {
+        const sock = makeSocket();
+        await imagineCommand(sock, 'chat', makeMessage('.imagine a paper boat', 'horde-imagine'));
+        await imagineCommand(sock, 'chat', makeMessage('.flux a blue mountain', 'horde-flux'));
+
+        const submissions = calls.filter(call => call.url.endsWith('/generate/async'));
+        assert.equal(submissions.length, 2);
+        for (const [index, call] of submissions.entries()) {
+            assert.equal(call.options.headers.apikey, '0000000000');
+            assert.equal(call.options.redirect, 'error');
+            const body = JSON.parse(call.options.body);
+            assert.equal(body.prompt, index === 0 ? 'a paper boat' : 'a blue mountain');
+            assert.equal(body.nsfw, false);
+            assert.equal(body.censor_nsfw, true);
+            assert.equal(body.validated_backends, true);
+            assert.equal(body.params.n, 1);
+            assert.equal(body.r2, false);
+            assert.equal(body.shared, true);
+        }
+        assert.equal(sock.sent.filter(item => item.payload.image).length, 2);
+        assert.ok(sock.sent.every(item => !item.payload.image || item.payload.mimetype === 'image/webp'));
+        assert.ok(sock.sent.some(item => item.payload.text?.includes('shared with LAION')));
+    } finally {
+        global.fetch = oldFetch;
+        restoreEnv('OPENAI_API_KEY', oldOpenAiKey);
+        restoreEnv('BFL_API_KEY', oldBflKey);
+    }
+});

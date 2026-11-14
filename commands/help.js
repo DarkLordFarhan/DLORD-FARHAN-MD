@@ -146,7 +146,11 @@ async function helpCommand(sock, chatId, message) {
 ║ 💎 .imagine <prompt>
 ║ 💎 .dalle <prompt> (OpenAI image alias)
 ║ 💎 .flux <prompt>
-║ 💎 .sora <prompt> (Veo video)
+║ 💎 .sora <prompt> (Veo video; Gemini key)
+║ Missing text/image keys use AI Horde fallback
+║ Prompts go to AI Horde volunteers
+║ Anonymous images shared with LAION
+║ Do not send private/sensitive prompts
 ╚══════════════════════════════════════════════╝
 
 ╔══════════════════ 🎯 FUN COMMANDS ══════════════════╗

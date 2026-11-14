@@ -2,8 +2,13 @@ const { extractRawMessageText, reserveAiCooldown } = require('../lib/ai-rate-lim
 
 const OPENAI_IMAGES_URL = 'https://api.openai.com/v1/images/generations';
 const BFL_API_BASE = 'https://api.bfl.ai';
+const HORDE_API_BASE = 'https://aihorde.net/api/v2';
+// AI Horde documents this public token for anonymous, lowest-priority access.
+const HORDE_ANONYMOUS_KEY = '0000000000';
 const MAX_PROMPT_LENGTH = 4000;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const HORDE_MAX_POLLS = 45;
+const HORDE_POLL_INTERVAL_MS = 4000;
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -39,6 +44,106 @@ async function readJson(response) {
         return await response.json();
     } catch {
         return {};
+    }
+}
+
+async function fetchHordeJson(url, options = {}, timeoutMs = 20000) {
+    const response = await fetch(url, {
+        ...options,
+        headers: {
+            accept: 'application/json',
+            'Client-Agent': 'DLORD-FARHAN-MD:1.0',
+            ...(options.headers || {})
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+        redirect: 'error'
+    });
+    if (!response.ok) throw Object.assign(new Error('AI Horde image API request failed.'), { status: response.status });
+    return response.json();
+}
+
+async function cancelHordeImageRequest(requestId) {
+    try {
+        await fetch(`${HORDE_API_BASE}/generate/status/${requestId}`, {
+            method: 'DELETE',
+            headers: {
+                accept: 'application/json',
+                'Client-Agent': 'DLORD-FARHAN-MD:1.0'
+            },
+            signal: AbortSignal.timeout(10000),
+            redirect: 'error'
+        });
+    } catch {
+        // Best-effort cancellation; do not mask the original failure.
+    }
+}
+
+async function generateHordeImage(prompt) {
+    const submitted = await fetchHordeJson(`${HORDE_API_BASE}/generate/async`, {
+        method: 'POST',
+        headers: {
+            apikey: HORDE_ANONYMOUS_KEY,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            prompt,
+            params: { n: 1, steps: 20, width: 512, height: 512 },
+            nsfw: false,
+            censor_nsfw: true,
+            validated_backends: true,
+            slow_workers: true,
+            extra_slow_workers: false,
+            r2: false,
+            shared: true
+        })
+    }, 30000);
+
+    const requestId = submitted?.id;
+    if (typeof requestId !== 'string' || !/^[0-9a-f-]{36}$/i.test(requestId)) {
+        throw new Error('AI Horde returned an invalid image request ID.');
+    }
+
+    let completed = false;
+    try {
+        for (let attempt = 0; attempt < HORDE_MAX_POLLS; attempt += 1) {
+            if (attempt > 0) await sleep(HORDE_POLL_INTERVAL_MS);
+            const status = await fetchHordeJson(`${HORDE_API_BASE}/generate/check/${requestId}`);
+            if (status.is_possible === false) {
+                throw Object.assign(new Error('No currently available AI Horde workers can process this image.'), {
+                    publicMessage: 'AI Horde has no compatible image workers available right now. Try again later.'
+                });
+            }
+            if (status.faulted) throw new Error('AI Horde could not process this image request.');
+            if (status.done) {
+                completed = true;
+                break;
+            }
+        }
+
+        if (!completed) {
+            throw Object.assign(new Error('AI Horde image generation timed out.'), {
+                publicMessage: 'AI Horde’s anonymous image queue is taking too long. Please try again later.'
+            });
+        }
+
+        const result = await fetchHordeJson(`${HORDE_API_BASE}/generate/status/${requestId}`);
+        const generation = Array.isArray(result?.generations) ? result.generations[0] : null;
+        if (!generation || generation.censored || generation.state !== 'ok') {
+            throw Object.assign(new Error('AI Horde returned no usable image.'), {
+                publicMessage: 'AI Horde could not return a usable image for that prompt. Try a different prompt.'
+            });
+        }
+
+        let encoded = generation.img;
+        if (typeof encoded !== 'string' || !encoded) throw new Error('AI Horde returned no image data.');
+        encoded = encoded.replace(/^data:image\/webp;base64,/i, '');
+        if (encoded.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4) throw new Error('AI Horde image exceeded the supported size.');
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error('AI Horde returned an invalid image payload.');
+        const buffer = Buffer.from(encoded, 'base64');
+        if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) throw new Error('AI Horde image exceeded the supported size.');
+        return { buffer, mimetype: 'image/webp' };
+    } finally {
+        if (!completed) await cancelHordeImageRequest(requestId);
     }
 }
 
@@ -144,21 +249,30 @@ async function imagineCommand(sock, chatId, message) {
     }
 
     const keyName = usesFlux ? 'BFL_API_KEY' : 'OPENAI_API_KEY';
-    if (!process.env[keyName]) {
-        await sock.sendMessage(chatId, { text: `${keyName} is not configured in the bot environment.` }, { quoted: message });
-        return;
-    }
+    const usingHorde = !process.env[keyName];
     const waitSeconds = reserveAiCooldown(message, 60000);
     if (waitSeconds) {
         await sock.sendMessage(chatId, { text: `Please wait ${waitSeconds} seconds before another image-generation request.` }, { quoted: message });
         return;
     }
 
-    const provider = usesFlux ? 'Black Forest Labs FLUX' : 'OpenAI Images';
-    await sock.sendMessage(chatId, { text: `Generating with ${provider}. This may take a little while.` }, { quoted: message });
+    const officialProvider = usesFlux ? 'Black Forest Labs FLUX' : 'OpenAI Images';
+    const provider = usingHorde ? 'AI Horde anonymous image generation' : officialProvider;
+    if (usingHorde) {
+        await sock.sendMessage(chatId, {
+            text: 'Using AI Horde’s anonymous community fallback. Your prompt goes to volunteer-run workers, and anonymous images are shared with LAION. Do not include private or sensitive information; the queue may be slow.'
+        }, { quoted: message });
+    } else {
+        await sock.sendMessage(chatId, { text: `Generating with ${provider}. This may take a little while.` }, { quoted: message });
+    }
+
     try {
-        const image = usesFlux ? await generateFluxImage(prompt) : await generateOpenAiImage(prompt);
-        const aliasCaption = command === '.dalle' ? 'OpenAI image generation (DALL·E alias)' : provider;
+        const image = usingHorde
+            ? await generateHordeImage(prompt)
+            : usesFlux
+                ? await generateFluxImage(prompt)
+                : await generateOpenAiImage(prompt);
+        const aliasCaption = command === '.dalle' ? `${provider} (.dalle alias)` : provider;
         await sock.sendMessage(chatId, {
             image: image.buffer,
             mimetype: image.mimetype,
@@ -167,7 +281,9 @@ async function imagineCommand(sock, chatId, message) {
     } catch (error) {
         console.error(`[AI-IMAGE] ${provider} request failed:`, error.status || (error.name === 'AbortError' ? 'timeout' : 'provider error'));
         await sock.sendMessage(chatId, {
-            text: error.publicMessage || (error.status ? providerMessage(provider, error.status) : `${provider} image generation failed. Check the API key, model access, and account credits.`)
+            text: error.publicMessage || (usingHorde
+                ? 'AI Horde could not complete the image request. Anonymous workers may be unavailable or overloaded; please try again later.'
+                : error.status ? providerMessage(provider, error.status) : `${provider} image generation failed. Check the API key, model access, and account credits.`)
         }, { quoted: message });
     }
 }
