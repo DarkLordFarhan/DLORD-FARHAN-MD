@@ -77,7 +77,9 @@ async function helpCommand(sock, chatId, message) {
 ║ 💎 .settings
 ║ 💎 .setpp <reply to image>
 ║ 💎 .autoreact <on/off>
-║ 💎 .autostatus <on/off>
+║ 💎 .autostatus on/off
+║ 💎 .autostatus react on/off
+║ 💎 .autostatus emoji <emojis>
 ║ 💎 .autotyping <on/off>
 ║ 💎 .autoread <on/off>
 ║ 💎 .anticall <on/off>
