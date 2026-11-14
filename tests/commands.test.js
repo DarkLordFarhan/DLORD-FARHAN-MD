@@ -88,57 +88,88 @@ test('news responds safely when the feed is unavailable', async () => {
     assert.match(sent[0][1].text, /could not fetch headlines/);
 });
 
-
-test('help sends the supplied menu banner and a complete scrollable command text message', async () => {
+test('help sends one image with a numbered category selector and replies open every category', async () => {
     const fs = require('node:fs');
     const path = require('node:path');
     const helpCommand = require('../commands/help');
+    const handleMenuCategoryReply = helpCommand.handleMenuCategoryReply;
     const settings = require('../settings');
     const sent = [];
-    await helpCommand(
-        { sendMessage: async (...args) => sent.push(args) },
-        'menu-chat',
-        { key: { id: 'menu-test' } }
-    );
+    const sock = {
+        sendMessage: async (...args) => {
+            sent.push(args);
+            return { key: { id: sent.length === 1 ? 'menu-image-1' : `menu-reply-${sent.length}` } };
+        }
+    };
 
-    assert.equal(sent.length, 2, 'expected the supplied menu banner followed by the scrollable text menu');
+    await helpCommand(sock, 'menu-chat', { key: { id: 'menu-request' } });
+    assert.equal(sent.length, 1, 'the menu should be delivered as one image message');
+
     const banner = sent[0][1];
-    const menu = sent[1][1];
-
     const bannerImage = fs.readFileSync(path.join(__dirname, '../assets/menu_bot_image.jpg'));
     assert.ok(Buffer.isBuffer(banner.image), 'expected the supplied menu banner');
     assert.deepEqual(banner.image, bannerImage);
-    assert.ok(banner.caption.length < 1024, 'banner caption should stay within the WhatsApp limit');
+    assert.ok(banner.caption.length < 1024, 'intro and numbered categories should fit the image caption');
     assert.ok(banner.caption.includes(`*${settings.botName}*`));
     assert.ok(banner.caption.includes(`Owner: *${settings.botOwner}*`));
     assert.match(banner.caption, /Time: \*.+ EAT\*/);
     assert.ok(banner.caption.includes('State: *🟢 ONLINE*'));
+    assert.match(banner.caption, /Commands listed: \*\d+\*/);
     assert.ok(banner.caption.includes('Owner WhatsApp: *+254795463911*'));
+    assert.ok(banner.caption.includes('Reply to this image with a category number'));
 
-    assert.equal(typeof menu.text, 'string');
-    assert.ok(!('image' in menu), 'the commands should be sent as scrollable text');
-    const commandLines = menu.text.split('\n').filter(line => line.trim().startsWith('🔹 .'));
-    const aliasLines = menu.text.match(/\s\/\s\.\S+/g) || [];
-    const commandCount = commandLines.length + aliasLines.length;
-    assert.ok(banner.caption.includes(`Commands listed: *${commandCount}*`));
-    assert.ok(menu.text.length > 1024, 'the full menu should be long enough to scroll in chat');
-    assert.ok(commandLines.every(line => line.trim().startsWith('🔹 .')),
-        'each listed command should have a 🔹 prefix');
-    for (const section of ['*🌐 GENERAL*', '*👮 ADMIN*', '*👑 OWNER*', '*🎨 IMAGE & STICKER*',
-        '*✨ TEXT EFFECTS*', '*🖼️ PIES*', '*🎮 GAMES*', '*🤖 AI*', '*🎯 FUN*',
-        '*📥 DOWNLOADS*', '*💻 GITHUB*']) {
-        assert.ok(menu.text.includes(section), `expected menu section ${section}`);
+    const categoryNames = [
+        '🌐 GENERAL', '👮 ADMIN', '👑 OWNER', '🎨 IMAGE & STICKER', '✨ TEXT EFFECTS',
+        '🖼️ PIES', '🎮 GAMES', '🤖 AI', '🎯 FUN', '📥 DOWNLOADS', '💻 GITHUB'
+    ];
+    categoryNames.forEach((category, index) => {
+        assert.ok(banner.caption.includes(`${index + 1}. *${category}*`),
+            `expected numbered category ${index + 1}: ${category}`);
+    });
+
+    const unquotedNumberHandled = await handleMenuCategoryReply(sock, 'menu-chat', {
+        message: { conversation: '1' }
+    });
+    assert.equal(unquotedNumberHandled, false, 'numbers unrelated to a quoted menu should not be intercepted');
+    assert.equal(sent.length, 1);
+
+    const expectedCommands = [
+        '.help / .menu', '.vv (reply to view-once photo/video)', '.ban @user',
+        '.autostatus emoji <emojis>', '.metallic <text>', '.pies <country>',
+        '.tictactoe @user', '.gpt <question>', '.gif <search term>',
+        '.play <song_name>', '.repo'
+    ];
+    const replies = [];
+    for (let categoryNumber = 1; categoryNumber <= categoryNames.length; categoryNumber += 1) {
+        const handled = await handleMenuCategoryReply(sock, 'menu-chat', {
+            key: { remoteJid: 'menu-chat' },
+            message: {
+                extendedTextMessage: {
+                    text: String(categoryNumber),
+                    contextInfo: { stanzaId: 'menu-image-1' }
+                }
+            }
+        });
+        assert.equal(handled, true, `category ${categoryNumber} reply should be handled`);
+        const response = sent.at(-1)[1];
+        assert.equal(typeof response.text, 'string');
+        assert.ok(response.text.startsWith(`*${categoryNumber}. ${categoryNames[categoryNumber - 1]}*`));
+        assert.match(response.text, /🔹 \./, `category ${categoryNumber} should contain commands`);
+        replies.push(response.text);
     }
 
-    for (const command of [
-        '.help / .menu', '.vv (reply to view-once photo/video)', '.autostatus emoji <emojis>',
-        '.metallic <text>', '.ice <text>', '.snow <text>', '.impressive <text>',
-        '.matrix <text>', '.light <text>', '.neon <text>', '.devil <text>', '.purple <text>',
-        '.thunder <text>', '.leaves <text>', '.1917 <text>', '.arena <text>', '.hacker <text>',
-        '.sand <text>', '.blackpink <text>', '.glitch <text>', '.fire <text>',
-        '.gif <search term>', '.gpt <question>', '.gemini <question>', '.imagine <prompt>',
-        '.dalle <prompt>', '.flux <prompt>', '.sora <prompt>', '.git', '.github', '.repo'
-    ]) {
-        assert.ok(menu.text.includes(command), `expected scrollable text menu to include ${command}`);
+    for (const command of expectedCommands) {
+        assert.ok(replies.join('\n').includes(command), `expected a category reply to include ${command}`);
     }
+
+    const invalidSelectionHandled = await handleMenuCategoryReply(sock, 'menu-chat', {
+        message: {
+            extendedTextMessage: {
+                text: '99',
+                contextInfo: { stanzaId: 'menu-image-1' }
+            }
+        }
+    });
+    assert.equal(invalidSelectionHandled, true);
+    assert.match(sent.at(-1)[1].text, /Choose a category number from 1 to 11/);
 });
