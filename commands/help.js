@@ -201,7 +201,7 @@ async function helpCommand(sock, chatId, message) {
     };
 
     try {
-        const bannerPath = path.join(__dirname, '../assets/bot_image.jpg');
+        const bannerPath = path.join(__dirname, '../assets/menu_bot_image.jpg');
         if (fs.existsSync(bannerPath)) {
             await sock.sendMessage(chatId, {
                 image: fs.readFileSync(bannerPath),

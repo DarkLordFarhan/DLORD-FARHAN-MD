@@ -89,7 +89,7 @@ test('news responds safely when the feed is unavailable', async () => {
 });
 
 
-test('help sends the README banner and a complete scrollable command text message', async () => {
+test('help sends the supplied menu banner and a complete scrollable command text message', async () => {
     const fs = require('node:fs');
     const path = require('node:path');
     const helpCommand = require('../commands/help');
@@ -101,12 +101,12 @@ test('help sends the README banner and a complete scrollable command text messag
         { key: { id: 'menu-test' } }
     );
 
-    assert.equal(sent.length, 2, 'expected the README banner followed by the scrollable text menu');
+    assert.equal(sent.length, 2, 'expected the supplied menu banner followed by the scrollable text menu');
     const banner = sent[0][1];
     const menu = sent[1][1];
 
-    const bannerImage = fs.readFileSync(path.join(__dirname, '../assets/bot_image.jpg'));
-    assert.ok(Buffer.isBuffer(banner.image), 'expected the README bot banner');
+    const bannerImage = fs.readFileSync(path.join(__dirname, '../assets/menu_bot_image.jpg'));
+    assert.ok(Buffer.isBuffer(banner.image), 'expected the supplied menu banner');
     assert.deepEqual(banner.image, bannerImage);
     assert.ok(banner.caption.length < 1024, 'banner caption should stay within the WhatsApp limit');
     assert.ok(banner.caption.includes(`*${settings.botName}*`));
