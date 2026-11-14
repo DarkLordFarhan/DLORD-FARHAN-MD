@@ -167,13 +167,21 @@ async function handleMessages(sock, messageUpdate, printLog) {
             type,
             count: messages?.length
         }));
-        if (type !== 'notify') {
+        const message = messages?.[0];
+        if (!message?.message) return;
+
+        const messageText = (
+            message.message?.conversation ||
+            message.message?.extendedTextMessage?.text ||
+            message.message?.imageMessage?.caption ||
+            message.message?.videoMessage?.caption ||
+            ''
+        ).trim();
+        const isSelfCommand = message.key?.fromMe === true && messageText.startsWith('.');
+        if (type !== 'notify' && !(type === 'append' && isSelfCommand)) {
             console.log('[MAIN HANDLER] Ignored event type:', type);
             return;
         }
-
-        const message = messages[0];
-        if (!message?.message) return;
 
         // Reliable public menu/help dispatch before other command restrictions.
         const incomingChatId = message.key?.remoteJid;
