@@ -89,7 +89,9 @@ test('news responds safely when the feed is unavailable', async () => {
 });
 
 
-test('help sends the complete Ephoto, GIF, and AI menu in a separate text message', async () => {
+test('help sends one combined menu image with the banner and complete command list', async () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
     const helpCommand = require('../commands/help');
     const sent = [];
     await helpCommand(
@@ -98,22 +100,34 @@ test('help sends the complete Ephoto, GIF, and AI menu in a separate text messag
         { key: { id: 'menu-test' } }
     );
 
-    const menuText = sent.map(([, payload]) => payload.text || '').find(text => text.includes('.metallic'));
-    assert.ok(menuText, 'expected full menu text to be sent separately');
-    assert.ok(menuText.length > 1024, 'menu should remain complete as a text message');
-    const widestLine = Math.max(...menuText.split('\n').map(line => Array.from(line).length));
-    assert.ok(widestLine <= 45, `menu should stay narrow; widest line was ${widestLine} characters`);
-    for (const command of [
-        '.metallic', '.ice', '.snow', '.impressive', '.matrix', '.light', '.neon',
-        '.devil', '.purple', '.thunder', '.leaves', '.1917', '.arena', '.hacker',
-        '.sand', '.blackpink', '.glitch', '.fire', '.gif <search term>',
-        '.gpt <question>', '.gemini <question>', '.imagine <prompt>',
-        '.dalle <prompt>', '.flux <prompt>', '.sora <prompt>',
-        '.vv (reply to view-once photo/video)', '.autostatus emoji <emojis>'
-    ]) {
-        assert.ok(menuText.includes(command), `expected menu to include ${command}`);
-    }
+    assert.equal(sent.length, 1, 'the image and command list should be one message');
+    const payload = sent[0][1];
+    assert.ok(Buffer.isBuffer(payload.image), 'expected the combined menu image');
+    assert.ok(payload.caption.length < 1024, 'image caption should stay below the WhatsApp caption limit');
 
-    const imageMessage = sent.find(([, payload]) => payload.image);
-    if (imageMessage) assert.ok(imageMessage[1].caption.length < 1024, 'image caption should stay below the WhatsApp caption limit');
+    const menuImagePath = path.join(__dirname, '../assets/command-menu.png');
+    const menuHtmlPath = path.join(__dirname, '../assets/command-menu.html');
+    const menuImage = fs.readFileSync(menuImagePath);
+    const menuHtml = fs.readFileSync(menuHtmlPath, 'utf8');
+    assert.deepEqual(payload.image, menuImage);
+    assert.match(menuHtml, /<img src="bot_image\.jpg"/);
+    assert.ok(menuImage.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
+    const width = menuImage.readUInt32BE(16);
+    const height = menuImage.readUInt32BE(20);
+    assert.ok(width <= 1240 && height > width, 'menu graphic should remain narrow and tall');
+
+    for (const command of [
+        '.metallic &lt;text&gt;', '.ice &lt;text&gt;', '.snow &lt;text&gt;',
+        '.impressive &lt;text&gt;', '.matrix &lt;text&gt;', '.light &lt;text&gt;',
+        '.neon &lt;text&gt;', '.devil &lt;text&gt;', '.purple &lt;text&gt;',
+        '.thunder &lt;text&gt;', '.leaves &lt;text&gt;', '.1917 &lt;text&gt;',
+        '.arena &lt;text&gt;', '.hacker &lt;text&gt;', '.sand &lt;text&gt;',
+        '.blackpink &lt;text&gt;', '.glitch &lt;text&gt;', '.fire &lt;text&gt;',
+        '.gif &lt;search term&gt;', '.gpt &lt;question&gt;', '.gemini &lt;question&gt;',
+        '.imagine &lt;prompt&gt;', '.dalle &lt;prompt&gt;', '.flux &lt;prompt&gt;',
+        '.sora &lt;prompt&gt;', '.vv (reply to view-once photo/video)',
+        '.autostatus emoji &lt;emojis&gt;'
+    ]) {
+        assert.ok(menuHtml.includes(command), `expected menu image source to include ${command}`);
+    }
 });

@@ -177,19 +177,12 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 `;
 
     try {
-        const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
+        const imagePath = path.join(__dirname, '../assets/command-menu.png');
         if (fs.existsSync(imagePath)) {
             const imageBuffer = fs.readFileSync(imagePath);
             await sock.sendMessage(chatId, {
                 image: imageBuffer,
-                caption: 'Command menu',
-                contextInfo: {
-                    forwardingScore: 1,
-                    isForwarded: true
-                }
-            }, { quoted: message });
-            await sock.sendMessage(chatId, {
-                text: helpMessage,
+                caption: '♛ LORD FARHAN BOT — COMMAND MENU ♛',
                 contextInfo: {
                     forwardingScore: 1,
                     isForwarded: true

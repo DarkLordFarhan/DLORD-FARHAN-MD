@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lord Farhan Bot Command Menu</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 620px; background: #080812; color: #f5f3ff; }
+    body { font-family: Arial, Helvetica, sans-serif; }
+    main { width: 620px; padding: 24px; background: linear-gradient(160deg, #0b0a18 0%, #111027 55%, #090916 100%); }
+    header { display: flex; align-items: center; gap: 18px; padding: 18px; margin-bottom: 16px; background: #16142d; border: 1px solid #55418a; border-radius: 16px; }
+    header img { width: 112px; height: 112px; object-fit: contain; border-radius: 10px; }
+    h1 { margin: 0 0 8px; font-size: 24px; line-height: 1.15; color: #eee8ff; }
+    header p { margin: 0; font-size: 14px; line-height: 1.35; color: #c4b5fd; letter-spacing: .08em; }
+    section { margin: 12px 0; padding: 14px 16px; background: rgba(23, 21, 47, .96); border: 1px solid #29264a; border-left: 4px solid #9b72f2; border-radius: 12px; }
+    h2 { margin: 0 0 10px; font-size: 17px; letter-spacing: .04em; color: #cdbbff; }
+    ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; row-gap: 4px; }
+    li { min-width: 0; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 14px; line-height: 1.28; overflow-wrap: anywhere; color: #f4f0ff; }
+    .note { grid-column: 1 / -1; color: #d6cafa; }
+    footer { padding: 16px 8px 8px; text-align: center; color: #bda9ff; font-size: 13px; letter-spacing: .1em; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="bot_image.jpg" alt="Lord Farhan Bot logo">
+      <div>
+        <h1>♛ LORD FARHAN BOT ♛</h1>
+        <p>COMMAND MENU<br>POWERED BY FARHAN II</p>
+      </div>
+    </header>
+
+    <section>
+      <h2>🌐 GENERAL</h2>
+      <ul>
+        <li>.help / .menu</li><li>.ping</li><li>.alive</li><li>.tts &lt;text&gt;</li>
+        <li>.owner</li><li>.joke</li><li>.quote</li><li>.fact</li>
+        <li>.status / .uptime</li><li>.weather &lt;city&gt;</li><li>.news</li><li>.attp &lt;text&gt;</li>
+        <li>.lyrics &lt;song_title&gt;</li><li>.8ball &lt;question&gt;</li><li>.groupinfo</li><li>.staff / .admins</li>
+        <li>.vv (reply to view-once photo/video)</li><li>.trt &lt;text&gt; &lt;lang&gt;</li><li>.ss &lt;link&gt;</li><li>.jid</li><li>.url</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>👮 ADMIN</h2>
+      <ul>
+        <li>.ban @user</li><li>.promote @user</li><li>.demote @user</li><li>.mute &lt;minutes&gt;</li>
+        <li>.unmute</li><li>.delete / .del</li><li>.kick @user</li><li>.warnings @user</li>
+        <li>.warn @user</li><li>.antilink</li><li>.antibadword</li><li>.clear</li>
+        <li>.tag &lt;message&gt;</li><li>.tagall</li><li>.tagnotadmin</li><li>.hidetag &lt;message&gt;</li>
+        <li>.chatbot</li><li>.resetlink</li><li>.antitag &lt;on/off&gt;</li><li>.welcome &lt;on/off&gt;</li>
+        <li>.goodbye &lt;on/off&gt;</li><li>.setgdesc &lt;description&gt;</li><li>.setgname &lt;new name&gt;</li><li>.setgpp (reply to image)</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>👑 OWNER</h2>
+      <ul>
+        <li>.mode &lt;public/private&gt;</li><li>.clearsession</li><li>.antidelete</li><li>.cleartmp</li>
+        <li>.update</li><li>.restart</li><li>.settings</li><li>.setpp (reply to image)</li>
+        <li>.autoreact &lt;on/off&gt;</li><li>.autostatus on/off</li><li>.autostatus react on/off</li><li>.autostatus emoji &lt;emojis&gt;</li>
+        <li>.autotyping &lt;on/off&gt;</li><li>.autoread &lt;on/off&gt;</li><li>.anticall &lt;on/off&gt;</li><li>.pmblocker &lt;on/off/status&gt;</li>
+        <li>.setmention (reply to msg)</li><li>.mention &lt;on/off&gt;</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🎨 IMAGE &amp; STICKER</h2>
+      <ul>
+        <li>.blur &lt;image&gt;</li><li>.simage (reply to sticker)</li><li>.sticker (reply to image)</li><li>.removebg</li>
+        <li>.remini</li><li>.crop (reply to image)</li><li>.tgsticker &lt;link&gt;</li><li>.meme</li>
+        <li>.take &lt;packname&gt;</li><li>.emojimix &lt;emj1&gt;+&lt;emj2&gt;</li><li>.igs &lt;instagram link&gt;</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>✨ TEXT EFFECTS</h2>
+      <ul>
+        <li>.metallic &lt;text&gt;</li><li>.ice &lt;text&gt;</li><li>.snow &lt;text&gt;</li><li>.impressive &lt;text&gt;</li>
+        <li>.matrix &lt;text&gt;</li><li>.light &lt;text&gt;</li><li>.neon &lt;text&gt;</li><li>.devil &lt;text&gt;</li>
+        <li>.purple &lt;text&gt;</li><li>.thunder &lt;text&gt;</li><li>.leaves &lt;text&gt;</li><li>.1917 &lt;text&gt;</li>
+        <li>.arena &lt;text&gt;</li><li>.hacker &lt;text&gt;</li><li>.sand &lt;text&gt;</li><li>.blackpink &lt;text&gt;</li>
+        <li>.glitch &lt;text&gt;</li><li>.fire &lt;text&gt;</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🖼️ PIES</h2>
+      <ul>
+        <li>.pies &lt;country&gt;</li><li>.china</li><li>.indonesia</li><li>.japan</li><li>.korea</li><li>.malaysia</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🎮 GAMES</h2>
+      <ul>
+        <li>.tictactoe @user</li><li>.hangman</li><li>.guess &lt;letter&gt;</li><li>.trivia</li>
+        <li>.answer &lt;answer&gt;</li><li>.truth</li><li>.dare</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🤖 AI</h2>
+      <ul>
+        <li>.gpt &lt;question&gt;</li><li>.gemini &lt;question&gt;</li><li>.imagine &lt;prompt&gt;</li><li>.dalle &lt;prompt&gt; (OpenAI image alias)</li>
+        <li>.flux &lt;prompt&gt;</li><li>.sora &lt;prompt&gt; (Veo video; Gemini key)</li>
+        <li class="note">Missing text/image keys use AI Horde; prompts go to volunteer workers.</li>
+        <li class="note">Anonymous images are shared with LAION. Avoid private or sensitive prompts.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>🎯 FUN</h2>
+      <ul>
+        <li>.compliment @user</li><li>.insult @user</li><li>.flirt</li><li>.shayari</li>
+        <li>.goodnight</li><li>.roseday</li><li>.character @user</li><li>.wasted @user</li>
+        <li>.ship @user</li><li>.simp @user</li><li>.stupid @user [text]</li><li>.gif &lt;search term&gt;</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>📥 DOWNLOADS</h2>
+      <ul>
+        <li>.play &lt;song_name&gt;</li><li>.song &lt;song_name&gt;</li><li>.spotify &lt;query&gt;</li><li>.instagram &lt;link&gt;</li>
+        <li>.facebook &lt;link&gt;</li><li>.tiktok &lt;link&gt;</li><li>.video &lt;song name&gt;</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>💻 GITHUB</h2>
+      <ul><li>.git</li><li>.github</li></ul>
+    </section>
+
+    <footer>⚡ LORD FARHAN BOT • POWERED BY FARHAN II ⚡</footer>
+  </main>
+</body>
+</html>
