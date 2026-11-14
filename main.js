@@ -42,7 +42,6 @@ const { autoreadCommand, isAutoreadEnabled, handleAutoread } = require('./comman
 // Command imports
 const tagAllCommand = require('./commands/tagall');
 const helpCommand = require('./commands/help');
-const handleMenuCategoryReply = helpCommand.handleMenuCategoryReply;
 const banCommand = require('./commands/ban');
 const { promoteCommand } = require('./commands/promote');
 const { demoteCommand } = require('./commands/demote');
@@ -198,10 +197,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                     text: '❌ Menu failed to load. Please check the bot console.'
                 }).catch(sendError => console.error('[MENU_SEND_ERROR]', sendError));
             }
-            return;
-        }
-
-        if (incomingChatId && await handleMenuCategoryReply(sock, incomingChatId, message)) {
             return;
         }
 

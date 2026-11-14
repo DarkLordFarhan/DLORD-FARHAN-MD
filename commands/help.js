@@ -3,81 +3,6 @@ const fs = require('fs');
 const path = require('path');
 
 const OWNER_WHATSAPP = '+254795463911';
-const menuSessions = new Map();
-const MENU_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_MENU_SESSIONS = 500;
-
-function parseMenuCategories(menuBody) {
-    const categories = [];
-    let currentCategory = null;
-
-    for (const rawLine of menuBody.trim().split('\n')) {
-        const line = rawLine.trim();
-        const heading = line.match(/^\*([^*]+)\*$/);
-        if (heading) {
-            currentCategory = { title: heading[1], commands: [] };
-            categories.push(currentCategory);
-            continue;
-        }
-
-        if (!currentCategory || !line || line.startsWith('⚡')) continue;
-        currentCategory.commands.push(line.replace(/^•\s*/, ''));
-    }
-
-    return categories;
-}
-
-function rememberMenuSession(chatId, sentMessage, categories) {
-    const messageId = sentMessage?.key?.id;
-    if (!messageId) return;
-
-    const now = Date.now();
-    for (const [key, session] of menuSessions) {
-        if (session.expiresAt <= now) menuSessions.delete(key);
-    }
-    while (menuSessions.size >= MAX_MENU_SESSIONS) {
-        menuSessions.delete(menuSessions.keys().next().value);
-    }
-
-    menuSessions.set(`${chatId}:${messageId}`, {
-        categories,
-        expiresAt: now + MENU_SESSION_TTL_MS
-    });
-}
-
-async function handleMenuCategoryReply(sock, chatId, message) {
-    const selectedText = (
-        message.message?.conversation ||
-        message.message?.extendedTextMessage?.text ||
-        ''
-    ).trim();
-    const quotedMenuId = message.message?.extendedTextMessage?.contextInfo?.stanzaId;
-    if (!/^\d{1,2}$/.test(selectedText) || !quotedMenuId) return false;
-
-    const sessionKey = `${chatId}:${quotedMenuId}`;
-    const session = menuSessions.get(sessionKey);
-    if (!session || session.expiresAt <= Date.now()) {
-        menuSessions.delete(sessionKey);
-        return false;
-    }
-
-    const categoryNumber = Number(selectedText);
-    const category = session.categories[categoryNumber - 1];
-    if (!category) {
-        await sock.sendMessage(chatId, {
-            text: `Choose a category number from 1 to ${session.categories.length}.`
-        }, { quoted: message });
-        return true;
-    }
-
-    const commandLines = category.commands.map(item =>
-        item.startsWith('.') ? `🔹 ${item}` : `• ${item}`
-    );
-    await sock.sendMessage(chatId, {
-        text: `*${categoryNumber}. ${category.title}*\n\n${commandLines.join('\n')}`
-    }, { quoted: message });
-    return true;
-}
 
 async function helpCommand(sock, chatId, message) {
     const nairobiTime = new Intl.DateTimeFormat('en-KE', {
@@ -266,41 +191,40 @@ async function helpCommand(sock, chatId, message) {
         `Owner WhatsApp: *${OWNER_WHATSAPP}*`
     ].join('\n');
 
-    const categories = parseMenuCategories(menuBody);
-    const categoryList = categories
-        .map((category, index) => `${index + 1}. *${category.title}*`)
-        .join('\n');
-    const menuCaption = [
-        introMessage,
-        '*📂 COMMAND CATEGORIES*',
-        categoryList,
-        'Reply to this image with a category number to see its commands.'
-    ].join('\n\n');
+    let categoryNumber = 0;
+    const numberedMenuBody = menuBody.trimStart()
+        .replace(/^\*([^*]+)\*$/gm, (_, title) => `${++categoryNumber}. *${title}*`);
+    const scrolledMenu = `🔹 *COMMAND MENU* 🔹\n\n${numberedMenuBody}`
+        .replace(/^(\s*)•\s+/gm, '$1🔹 ')
+        .trimEnd();
 
     const contextInfo = {
         forwardingScore: 1,
         isForwarded: true
     };
 
-    let sentMenu;
     try {
         const bannerPath = path.join(__dirname, '../assets/menu_bot_image.jpg');
         if (fs.existsSync(bannerPath)) {
-            sentMenu = await sock.sendMessage(chatId, {
+            await sock.sendMessage(chatId, {
                 image: fs.readFileSync(bannerPath),
-                caption: menuCaption,
+                caption: introMessage,
                 contextInfo
             }, { quoted: message });
         } else {
-            sentMenu = await sock.sendMessage(chatId, { text: menuCaption, contextInfo }, { quoted: message });
+            await sock.sendMessage(chatId, { text: introMessage, contextInfo }, { quoted: message });
         }
     } catch (error) {
         console.error('Error in help banner:', error);
-        sentMenu = await sock.sendMessage(chatId, { text: menuCaption, contextInfo }, { quoted: message });
+        await sock.sendMessage(chatId, { text: introMessage, contextInfo }, { quoted: message });
     }
 
-    rememberMenuSession(chatId, sentMenu, categories);
+    try {
+        await sock.sendMessage(chatId, { text: scrolledMenu, contextInfo }, { quoted: message });
+    } catch (error) {
+        console.error('Error in help menu:', error);
+        await sock.sendMessage(chatId, { text: scrolledMenu });
+    }
 }
 
 module.exports = helpCommand;
-module.exports.handleMenuCategoryReply = handleMenuCategoryReply;
