@@ -2,16 +2,16 @@ const settings = require('../settings');
 const fs = require('fs');
 const path = require('path');
 
+const OWNER_WHATSAPP = '+254795463911';
+
 async function helpCommand(sock, chatId, message) {
     const nairobiTime = new Intl.DateTimeFormat('en-KE', {
-      timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short'
+        timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short'
     }).format(new Date());
     const botName = settings.botName || 'LORD FARHAN BOT';
     const ownerName = settings.botOwner || 'Farhan II';
-    const ownerWhatsApp = '+254795463911';
-    const menuImagePath = path.join(__dirname, '../assets/command-menu.png');
-    const menuHtmlPath = path.join(__dirname, '../assets/command-menu.html');
-    const menuHtml = fs.existsSync(menuHtmlPath) ? fs.readFileSync(menuHtmlPath, 'utf8') : '';
+    const ownerVersion = settings.version || '3.0.0';
+
     const menuBody = `
 *🌐 GENERAL*
 • .help / .menu
@@ -176,48 +176,51 @@ async function helpCommand(sock, chatId, message) {
 
 ⚡ *LORD FARHAN BOT — POWERED BY FARHAN II* ⚡
 `;
-    const htmlItems = (menuHtml.match(/<li(?=\s|>)/g) || []).length;
-    const htmlNotes = (menuHtml.match(/<li class="note">/g) || []).length;
-    const htmlAliases = (menuHtml.match(/\.\w+\s\/\s\.\w+/g) || []).length;
-    const fallbackCommandCount = (menuBody.match(/^\s*•\s+\./gm) || []).length;
-    const fallbackAliases = (menuBody.match(/\.\w+\s\/\s\.\w+/g) || []).length;
-    const commandCount = htmlItems > htmlNotes
-        ? htmlItems - htmlNotes + htmlAliases
-        : fallbackCommandCount + fallbackAliases;
+
+    const listedCommands = (menuBody.match(/^•\s+\.\S+/gm) || []).length;
+    const aliasCommands = (menuBody.match(/\s\/\s\.\S+/g) || []).length;
+    const commandCount = listedCommands + aliasCommands;
+
     const introMessage = [
         `*${botName}*`,
         `Owner: *${ownerName}*`,
-    `Time: *${nairobiTime} EAT*`,
-    'State: *🟢 ONLINE*',
+        `Time: *${nairobiTime} EAT*`,
+        'State: *🟢 ONLINE*',
         `Commands listed: *${commandCount}*`,
-        `Owner WhatsApp: *${ownerWhatsApp}*`
+        `Version: *${ownerVersion}*`,
+        `Owner WhatsApp: *${OWNER_WHATSAPP}*`
     ].join('\n');
-    const fallbackMenuBody = menuBody.replace(/^(\s*)•\s+/gm, '$1🔹 ');
-    const helpMessage = `${introMessage}\n\n${fallbackMenuBody}`;
+
+    const scrolledMenu = `🔹 *COMMAND MENU* 🔹\n\n${menuBody.trimStart()}`
+        .replace(/^(\s*)•\s+/gm, '$1🔹 ')
+        .trimEnd();
+
+    const contextInfo = {
+        forwardingScore: 1,
+        isForwarded: true
+    };
 
     try {
-        if (fs.existsSync(menuImagePath)) {
-            const imageBuffer = fs.readFileSync(menuImagePath);
+        const bannerPath = path.join(__dirname, '../assets/bot_image.jpg');
+        if (fs.existsSync(bannerPath)) {
             await sock.sendMessage(chatId, {
-                image: imageBuffer,
+                image: fs.readFileSync(bannerPath),
                 caption: introMessage,
-                contextInfo: {
-                    forwardingScore: 1,
-                    isForwarded: true
-                }
+                contextInfo
             }, { quoted: message });
         } else {
-            await sock.sendMessage(chatId, {
-                text: helpMessage,
-                contextInfo: {
-                    forwardingScore: 1,
-                    isForwarded: true
-                }
-            }, { quoted: message });
+            await sock.sendMessage(chatId, { text: introMessage, contextInfo }, { quoted: message });
         }
     } catch (error) {
-        console.error('Error in help command:', error);
-        await sock.sendMessage(chatId, { text: helpMessage });
+        console.error('Error in help banner:', error);
+        await sock.sendMessage(chatId, { text: introMessage, contextInfo }, { quoted: message });
+    }
+
+    try {
+        await sock.sendMessage(chatId, { text: scrolledMenu, contextInfo }, { quoted: message });
+    } catch (error) {
+        console.error('Error in help menu:', error);
+        await sock.sendMessage(chatId, { text: scrolledMenu });
     }
 }
 
