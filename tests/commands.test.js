@@ -101,13 +101,15 @@ test('help sends the complete Ephoto, GIF, and AI menu in a separate text messag
     const menuText = sent.map(([, payload]) => payload.text || '').find(text => text.includes('.metallic'));
     assert.ok(menuText, 'expected full menu text to be sent separately');
     assert.ok(menuText.length > 1024, 'menu should remain complete as a text message');
+    const widestLine = Math.max(...menuText.split('\n').map(line => Array.from(line).length));
+    assert.ok(widestLine <= 45, `menu should stay narrow; widest line was ${widestLine} characters`);
     for (const command of [
         '.metallic', '.ice', '.snow', '.impressive', '.matrix', '.light', '.neon',
         '.devil', '.purple', '.thunder', '.leaves', '.1917', '.arena', '.hacker',
         '.sand', '.blackpink', '.glitch', '.fire', '.gif <search term>',
         '.gpt <question>', '.gemini <question>', '.imagine <prompt>',
         '.dalle <prompt>', '.flux <prompt>', '.sora <prompt>',
-        '.vv (reply to view-once photo/video)'
+        '.vv (reply to view-once photo/video)', '.autostatus emoji <emojis>'
     ]) {
         assert.ok(menuText.includes(command), `expected menu to include ${command}`);
     }

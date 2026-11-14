@@ -4,188 +4,176 @@ const path = require('path');
 
 async function helpCommand(sock, chatId, message) {
     const nairobiTime = new Intl.DateTimeFormat('en-KE', {
-      timeZone: 'Africa/Nairobi', dateStyle: 'full', timeStyle: 'short'
+        timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short'
     }).format(new Date());
     const helpMessage = `
-╔══════════════════════════════════════╗
-║          ♛ *𝕯𝕷𝕺𝕽𝕯 𝕱𝕬𝕽𝕳𝕬𝕹 𝕭𝕺𝕿* ♛          ║
-╠══════════════════════════════════════╣
-║  ⚡ Version: *${settings.version || '3.0.0'}*
-║  🕒 Nairobi, Kenya: *${nairobiTime} EAT*
-║  👑 Owner: *${settings.botOwner || 'Farhan II'}*
-║  💠 Status: *POWERED BY FARHAN II*
-╚══════════════════════════════════════╝
+*♛ LORD FARHAN BOT ♛*
+Version: *${settings.version || '3.0.0'}*
+Nairobi: *${nairobiTime} EAT*
+Owner: *${settings.botOwner || 'Farhan II'}*
+*POWERED BY FARHAN II*
 
-╔══════════════ 🌐 GENERAL COMMANDS ══════════════╗
-║ 💎 .help / .menu
-║ 💎 .ping
-║ 💎 .alive
-║ 💎 .tts <text>
-║ 💎 .owner
-║ 💎 .joke
-║ 💎 .quote
-║ 💎 .fact
-║ 💎 .status / .uptime
-║ 💎 .weather <city>
-║ 💎 .news
-║ 💎 .attp <text>
-║ 💎 .lyrics <song_title>
-║ 💎 .8ball <question>
-║ 💎 .groupinfo
-║ 💎 .staff / .admins
-║ 💎 .vv (reply to view-once photo/video)
-║ 💎 .trt <text> <lang>
-║ 💎 .ss <link>
-║ 💎 .jid
-║ 💎 .url
-╚══════════════════════════════════════════════╝
+*🌐 GENERAL*
+• .help / .menu
+• .ping
+• .alive
+• .tts <text>
+• .owner
+• .joke
+• .quote
+• .fact
+• .status / .uptime
+• .weather <city>
+• .news
+• .attp <text>
+• .lyrics <song_title>
+• .8ball <question>
+• .groupinfo
+• .staff / .admins
+• .vv (reply to view-once photo/video)
+• .trt <text> <lang>
+• .ss <link>
+• .jid
+• .url
 
-╔══════════════ 👮 ADMIN COMMANDS ═══════════════╗
-║ 💎 .ban @user
-║ 💎 .promote @user
-║ 💎 .demote @user
-║ 💎 .mute <minutes>
-║ 💎 .unmute
-║ 💎 .delete / .del
-║ 💎 .kick @user
-║ 💎 .warnings @user
-║ 💎 .warn @user
-║ 💎 .antilink
-║ 💎 .antibadword
-║ 💎 .clear
-║ 💎 .tag <message>
-║ 💎 .tagall
-║ 💎 .tagnotadmin
-║ 💎 .hidetag <message>
-║ 💎 .chatbot
-║ 💎 .resetlink
-║ 💎 .antitag <on/off>
-║ 💎 .welcome <on/off>
-║ 💎 .goodbye <on/off>
-║ 💎 .setgdesc <description>
-║ 💎 .setgname <new name>
-║ 💎 .setgpp (reply to image)
-╚══════════════════════════════════════════════╝
+*👮 ADMIN*
+• .ban @user
+• .promote @user
+• .demote @user
+• .mute <minutes>
+• .unmute
+• .delete / .del
+• .kick @user
+• .warnings @user
+• .warn @user
+• .antilink
+• .antibadword
+• .clear
+• .tag <message>
+• .tagall
+• .tagnotadmin
+• .hidetag <message>
+• .chatbot
+• .resetlink
+• .antitag <on/off>
+• .welcome <on/off>
+• .goodbye <on/off>
+• .setgdesc <description>
+• .setgname <new name>
+• .setgpp (reply to image)
 
-╔══════════════ 👑 OWNER COMMANDS ═══════════════╗
-║ 💎 .mode <public/private>
-║ 💎 .clearsession
-║ 💎 .antidelete
-║ 💎 .cleartmp
-║ 💎 .update
-║ 💎 .restart
-║ 💎 .settings
-║ 💎 .setpp <reply to image>
-║ 💎 .autoreact <on/off>
-║ 💎 .autostatus on/off
-║ 💎 .autostatus react on/off
-║ 💎 .autostatus emoji <emojis>
-║ 💎 .autotyping <on/off>
-║ 💎 .autoread <on/off>
-║ 💎 .anticall <on/off>
-║ 💎 .pmblocker <on/off/status>
-║ 💎 .setmention <reply to msg>
-║ 💎 .mention <on/off>
-╚══════════════════════════════════════════════╝
+*👑 OWNER*
+• .mode <public/private>
+• .clearsession
+• .antidelete
+• .cleartmp
+• .update
+• .restart
+• .settings
+• .setpp (reply to image)
+• .autoreact <on/off>
+• .autostatus on/off
+• .autostatus react on/off
+• .autostatus emoji <emojis>
+• .autotyping <on/off>
+• .autoread <on/off>
+• .anticall <on/off>
+• .pmblocker <on/off/status>
+• .setmention (reply to msg)
+• .mention <on/off>
 
-╔══════════════ 🎨 IMAGE & STICKER ══════════════╗
-║ 💎 .blur <image>
-║ 💎 .simage <reply to sticker>
-║ 💎 .sticker <reply to image>
-║ 💎 .removebg
-║ 💎 .remini
-║ 💎 .crop <reply to image>
-║ 💎 .tgsticker <link>
-║ 💎 .meme
-║ 💎 .take <packname>
-║ 💎 .emojimix <emj1>+<emj2>
-║ 💎 .igs <instagram link>
-╚══════════════════════════════════════════════╝
+*🎨 IMAGE & STICKER*
+• .blur <image>
+• .simage <reply to sticker>
+• .sticker <reply to image>
+• .removebg
+• .remini
+• .crop <reply to image>
+• .tgsticker <link>
+• .meme
+• .take <packname>
+• .emojimix <emj1>+<emj2>
+• .igs <instagram link>
 
-╔══════════════════ ✨ TEXT EFFECTS ══════════════════╗
-║ 💎 .metallic <text>
-║ 💎 .ice <text>
-║ 💎 .snow <text>
-║ 💎 .impressive <text>
-║ 💎 .matrix <text>
-║ 💎 .light <text>
-║ 💎 .neon <text>
-║ 💎 .devil <text>
-║ 💎 .purple <text>
-║ 💎 .thunder <text>
-║ 💎 .leaves <text>
-║ 💎 .1917 <text>
-║ 💎 .arena <text>
-║ 💎 .hacker <text>
-║ 💎 .sand <text>
-║ 💎 .blackpink <text>
-║ 💎 .glitch <text>
-║ 💎 .fire <text>
-╚═══════════════════════════════════════════════════╝
+*✨ TEXT EFFECTS*
+• .metallic <text>
+• .ice <text>
+• .snow <text>
+• .impressive <text>
+• .matrix <text>
+• .light <text>
+• .neon <text>
+• .devil <text>
+• .purple <text>
+• .thunder <text>
+• .leaves <text>
+• .1917 <text>
+• .arena <text>
+• .hacker <text>
+• .sand <text>
+• .blackpink <text>
+• .glitch <text>
+• .fire <text>
 
-╔══════════════════ 🖼️ PIES COMMANDS ═════════════════╗
-║ 💎 .pies <country>
-║ 💎 .china
-║ 💎 .indonesia
-║ 💎 .japan
-║ 💎 .korea
-║ 💎 .malaysia
-╚══════════════════════════════════════════════╝
+*🖼️ PIES*
+• .pies <country>
+• .china
+• .indonesia
+• .japan
+• .korea
+• .malaysia
 
-╔══════════════════ 🎮 GAME COMMANDS ═════════════════╗
-║ 💎 .tictactoe @user
-║ 💎 .hangman
-║ 💎 .guess <letter>
-║ 💎 .trivia
-║ 💎 .answer <answer>
-║ 💎 .truth
-║ 💎 .dare
-╚══════════════════════════════════════════════╝
+*🎮 GAMES*
+• .tictactoe @user
+• .hangman
+• .guess <letter>
+• .trivia
+• .answer <answer>
+• .truth
+• .dare
 
-╔══════════════════ 🤖 AI COMMANDS ═══════════════════╗
-║ 💎 .gpt <question>
-║ 💎 .gemini <question>
-║ 💎 .imagine <prompt>
-║ 💎 .dalle <prompt> (OpenAI image alias)
-║ 💎 .flux <prompt>
-║ 💎 .sora <prompt> (Veo video; Gemini key)
-║ Missing text/image keys use AI Horde fallback
-║ Prompts go to AI Horde volunteers
-║ Anonymous images shared with LAION
-║ Do not send private/sensitive prompts
-╚══════════════════════════════════════════════╝
+*🤖 AI*
+• .gpt <question>
+• .gemini <question>
+• .imagine <prompt>
+• .dalle <prompt>
+  OpenAI image alias
+• .flux <prompt>
+• .sora <prompt>
+  Veo video; Gemini key required
+• Missing text/image keys use AI Horde
+• Prompts go to volunteer workers
+• Anonymous images shared with LAION
+• Avoid private/sensitive prompts
 
-╔══════════════════ 🎯 FUN COMMANDS ══════════════════╗
-║ 💎 .compliment @user
-║ 💎 .insult @user
-║ 💎 .flirt
-║ 💎 .shayari
-║ 💎 .goodnight
-║ 💎 .roseday
-║ 💎 .character @user
-║ 💎 .wasted @user
-║ 💎 .ship @user
-║ 💎 .simp @user
-║ 💎 .stupid @user [text]
-║ 💎 .gif <search term>
-╚══════════════════════════════════════════════╝
+*🎯 FUN*
+• .compliment @user
+• .insult @user
+• .flirt
+• .shayari
+• .goodnight
+• .roseday
+• .character @user
+• .wasted @user
+• .ship @user
+• .simp @user
+• .stupid @user [text]
+• .gif <search term>
 
-╔════════════════ 📥 DOWNLOAD COMMANDS ═══════════════╗
-║ 💎 .play <song_name>
-║ 💎 .song <song_name>
-║ 💎 .spotify <query>
-║ 💎 .instagram <link>
-║ 💎 .facebook <link>
-║ 💎 .tiktok <link>
-║ 💎 .video <song name>
-╚══════════════════════════════════════════════╝
+*📥 DOWNLOADS*
+• .play <song_name>
+• .song <song_name>
+• .spotify <query>
+• .instagram <link>
+• .facebook <link>
+• .tiktok <link>
+• .video <song name>
 
-╔══════════════════ 💻 GITHUB COMMANDS ═══════════════╗
-║ 💎 .git
-║ 💎 .github
-╚══════════════════════════════════════════════╝
+*💻 GITHUB*
+• .git
+• .github
 
-       ⚡ *👑 𝕃𝕆ℝ𝔻 𝔽𝔸ℝℍ𝔸ℕ 𝔹𝕆𝕋 👑 — POWERED BY FARHAN II* ⚡
+⚡ *LORD FARHAN BOT — POWERED BY FARHAN II* ⚡
 `;
 
     try {
