@@ -89,7 +89,7 @@ test('news responds safely when the feed is unavailable', async () => {
 });
 
 
-test('help sends the README banner with intro and the full command menu as scrollable text', async () => {
+test('help sends one narrow combined menu image with the README banner and bold borders', async () => {
     const fs = require('node:fs');
     const path = require('node:path');
     const helpCommand = require('../commands/help');
@@ -101,43 +101,49 @@ test('help sends the README banner with intro and the full command menu as scrol
         { key: { id: 'menu-test' } }
     );
 
-    assert.equal(sent.length, 2, 'expected the banner message followed by the text menu');
-    const banner = sent[0][1];
-    const menu = sent[1][1];
+    assert.equal(sent.length, 1, 'the banner and commands should be one image message');
+    const payload = sent[0][1];
 
-    const bannerImage = fs.readFileSync(path.join(__dirname, '../assets/bot_image.jpg'));
-    assert.ok(Buffer.isBuffer(banner.image), 'expected the README bot banner image');
-    assert.deepEqual(banner.image, bannerImage);
-    assert.ok(banner.caption.length < 1024, 'banner caption should stay within the WhatsApp limit');
-    assert.ok(banner.caption.includes(`*${settings.botName}*`));
-    assert.ok(banner.caption.includes(`Owner: *${settings.botOwner}*`));
-    assert.match(banner.caption, /Time: \*.+ EAT\*/);
-    assert.ok(banner.caption.includes('State: *🟢 ONLINE*'));
-    assert.ok(banner.caption.includes('Owner WhatsApp: *+254795463911*'));
+    const menuImagePath = path.join(__dirname, '../assets/command-menu.png');
+    const menuHtmlPath = path.join(__dirname, '../assets/command-menu.html');
+    const menuImage = fs.readFileSync(menuImagePath);
+    const menuHtml = fs.readFileSync(menuHtmlPath, 'utf8');
+    assert.ok(Buffer.isBuffer(payload.image), 'expected the combined menu image');
+    assert.deepEqual(payload.image, menuImage);
+    assert.ok(payload.caption.length < 1024, 'image caption should stay within the WhatsApp limit');
+    assert.ok(payload.caption.includes(`*${settings.botName}*`));
+    assert.ok(payload.caption.includes(`Owner: *${settings.botOwner}*`));
+    assert.match(payload.caption, /Time: \*.+ EAT\*/);
+    assert.ok(payload.caption.includes('State: *🟢 ONLINE*'));
+    assert.ok(payload.caption.includes('Owner WhatsApp: *+254795463911*'));
 
-    assert.ok(!('image' in menu), 'the command list must be sent as text, not as an image');
-    const commandLines = menu.text.split('\n').filter(line => line.trim().startsWith('🔹 .'));
-    const aliasLines = menu.text.match(/\s\/\s\.\S+/g) || [];
-    const commandCount = commandLines.length + aliasLines.length;
-    assert.ok(banner.caption.includes(`Commands listed: *${commandCount}*`),
-        'the banner should report the exact number of listed commands');
-    assert.ok(commandCount > 100, 'the menu should list every command group');
-    assert.ok(menu.text.length > 1024, 'the menu should be a full scrollable text message');
-    for (const section of ['*🌐 GENERAL*', '*👮 ADMIN*', '*👑 OWNER*', '*🎨 IMAGE & STICKER*',
-        '*✨ TEXT EFFECTS*', '*🖼️ PIES*', '*🎮 GAMES*', '*🤖 AI*', '*🎯 FUN*',
-        '*📥 DOWNLOADS*', '*💻 GITHUB*']) {
-        assert.ok(menu.text.includes(section), `expected menu section ${section}`);
-    }
+    const itemCount = (menuHtml.match(/<li(?=\s|>)/g) || []).length;
+    const noteCount = (menuHtml.match(/<li class="note">/g) || []).length;
+    const aliasCount = (menuHtml.match(/\.\w+\s\/\s\.\w+/g) || []).length;
+    const commandCount = itemCount - noteCount + aliasCount;
+    assert.ok(payload.caption.includes(`Commands listed: *${commandCount}*`));
+    assert.match(menuHtml, /html, body\s*\{[^}]*width:\s*540px/);
+    assert.match(menuHtml, /main\s*\{[^}]*width:\s*540px/);
+    assert.match(menuHtml, /section\s*\{[^}]*border:\s*3px solid/);
+    assert.match(menuHtml, /border-left:\s*7px solid/);
+    assert.match(menuHtml, /<img src="bot_image\.jpg"/);
+    assert.match(menuHtml, /li:not\(\.note\)::before\s*\{[^}]*content:\s*'🔹'/);
+    assert.match(menuHtml, /ul\s*\{[^}]*display:\s*block/);
+    assert.equal(aliasCount, 4, 'menu command total should count the documented aliases');
+    const width = menuImage.readUInt32BE(16);
+    const height = menuImage.readUInt32BE(20);
+    assert.ok(width <= 1100 && height > width, 'menu poster should be narrow and tall');
 
     for (const command of [
-        '.help / .menu', '.vv (reply to view-once photo/video)', '.autostatus emoji <emojis>',
-        '.metallic <text>', '.ice <text>', '.snow <text>', '.impressive <text>',
-        '.matrix <text>', '.light <text>', '.neon <text>', '.devil <text>', '.purple <text>',
-        '.thunder <text>', '.leaves <text>', '.1917 <text>', '.arena <text>', '.hacker <text>',
-        '.sand <text>', '.blackpink <text>', '.glitch <text>', '.fire <text>',
-        '.gif <search term>', '.gpt <question>', '.gemini <question>', '.imagine <prompt>',
-        '.dalle <prompt>', '.flux <prompt>', '.sora <prompt>', '.git', '.github', '.repo'
+        '.help / .menu', '.vv (reply to view-once photo/video)', '.autostatus emoji &lt;emojis&gt;',
+        '.metallic &lt;text&gt;', '.ice &lt;text&gt;', '.snow &lt;text&gt;', '.impressive &lt;text&gt;',
+        '.matrix &lt;text&gt;', '.light &lt;text&gt;', '.neon &lt;text&gt;', '.devil &lt;text&gt;',
+        '.purple &lt;text&gt;', '.thunder &lt;text&gt;', '.leaves &lt;text&gt;', '.1917 &lt;text&gt;',
+        '.arena &lt;text&gt;', '.hacker &lt;text&gt;', '.sand &lt;text&gt;', '.blackpink &lt;text&gt;',
+        '.glitch &lt;text&gt;', '.fire &lt;text&gt;', '.gif &lt;search term&gt;', '.gpt &lt;question&gt;',
+        '.gemini &lt;question&gt;', '.imagine &lt;prompt&gt;', '.dalle &lt;prompt&gt;', '.flux &lt;prompt&gt;',
+        '.sora &lt;prompt&gt;', '.git</li>', '.github</li>', '.repo</li>'
     ]) {
-        assert.ok(menu.text.includes(command), `expected the text menu to include ${command}`);
+        assert.ok(menuHtml.includes(command), `expected menu image source to include ${command}`);
     }
 });
