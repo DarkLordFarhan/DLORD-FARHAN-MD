@@ -2,17 +2,17 @@ const settings = require('../settings');
 const fs = require('fs');
 const path = require('path');
 
-const OWNER_WHATSAPP = '+254795463911';
-
 async function helpCommand(sock, chatId, message) {
     const nairobiTime = new Intl.DateTimeFormat('en-KE', {
         timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short'
     }).format(new Date());
-    const botName = settings.botName || 'LORD FARHAN BOT';
-    const ownerName = settings.botOwner || 'Farhan II';
-    const ownerVersion = settings.version || '3.0.0';
+    const helpMessage = `
+*♛ LORD FARHAN BOT ♛*
+Version: *${settings.version || '3.0.0'}*
+Nairobi: *${nairobiTime} EAT*
+Owner: *${settings.botOwner || 'Farhan II'}*
+*POWERED BY FARHAN II*
 
-    const menuBody = `
 *🌐 GENERAL*
 • .help / .menu
 • .ping
@@ -172,57 +172,41 @@ async function helpCommand(sock, chatId, message) {
 *💻 GITHUB*
 • .git
 • .github
-• .repo
 
 ⚡ *LORD FARHAN BOT — POWERED BY FARHAN II* ⚡
 `;
 
-    const listedCommands = (menuBody.match(/^•\s+\.\S+/gm) || []).length;
-    const commandLines = menuBody.split('\n').flatMap(rawLine => {
-        const line = rawLine.trim();
-        if (!line.startsWith('• .')) return [];
-        return line.slice(2).split(/\s+\/\s+/).map(command => `🔹 ${command.trim()}`);
-    });
-    const commandCount = commandLines.length;
-
-    const introMessage = [
-        `*${botName}*`,
-        `Owner: *${ownerName}*`,
-        `Time: *${nairobiTime} EAT*`,
-        'State: *🟢 ONLINE*',
-        `Commands listed: *${commandCount}*`,
-        `Version: *${ownerVersion}*`,
-        `Owner WhatsApp: *${OWNER_WHATSAPP}*`
-    ].join('\n');
-
-    const scrolledMenu = commandLines.join('\n');
-
-    const contextInfo = {
-        forwardingScore: 1,
-        isForwarded: true
-    };
-
     try {
-        const bannerPath = path.join(__dirname, '../assets/menu_bot_image.jpg');
-        if (fs.existsSync(bannerPath)) {
+        const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
+        if (fs.existsSync(imagePath)) {
+            const imageBuffer = fs.readFileSync(imagePath);
             await sock.sendMessage(chatId, {
-                image: fs.readFileSync(bannerPath),
-                caption: introMessage,
-                contextInfo
+                image: imageBuffer,
+                caption: 'Command menu',
+                contextInfo: {
+                    forwardingScore: 1,
+                    isForwarded: true
+                }
+            }, { quoted: message });
+            await sock.sendMessage(chatId, {
+                text: helpMessage,
+                contextInfo: {
+                    forwardingScore: 1,
+                    isForwarded: true
+                }
             }, { quoted: message });
         } else {
-            await sock.sendMessage(chatId, { text: introMessage, contextInfo }, { quoted: message });
+            await sock.sendMessage(chatId, {
+                text: helpMessage,
+                contextInfo: {
+                    forwardingScore: 1,
+                    isForwarded: true
+                }
+            }, { quoted: message });
         }
     } catch (error) {
-        console.error('Error in help banner:', error);
-        await sock.sendMessage(chatId, { text: introMessage, contextInfo }, { quoted: message });
-    }
-
-    try {
-        await sock.sendMessage(chatId, { text: scrolledMenu, contextInfo }, { quoted: message });
-    } catch (error) {
-        console.error('Error in help menu:', error);
-        await sock.sendMessage(chatId, { text: scrolledMenu });
+        console.error('Error in help command:', error);
+        await sock.sendMessage(chatId, { text: helpMessage });
     }
 }
 

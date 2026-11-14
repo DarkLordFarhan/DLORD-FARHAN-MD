@@ -16,7 +16,6 @@ const chalk = require('chalk');
 const FileType = require('file-type');
 const axios = require('axios');
 const { handleMessages, handleGroupParticipantUpdate, handleStatus } = require('./main');
-const processUpsertBatch = require('./lib/process-upsert-batch');
 const PhoneNumber = require('awesome-phonenumber');
 const { imageToWebp, videoToWebp, writeExifImg, writeExifVid } = require('./lib/exif');
 const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetch, await, sleep, reSize } = require('./lib/myfunc');
@@ -44,7 +43,6 @@ const { rmSync, existsSync } = require('fs');
 const { join } = require('path');
 
 const store = require('./lib/lightweight_store');
-const { createReconnectScheduler } = require('./lib/reconnect-scheduler');
 store.readFromFile();
 const settings = require('./settings');
 setInterval(() => store.writeToFile(), settings.storeWriteInterval || 10000);
@@ -306,59 +304,11 @@ const channelInfo = {
     }
 };
 
-let activeSocket = null;
-let startupInProgress = false;
-let startupStartedAt = null;
-let hasConnectedBefore = false;
-let socketConnectionState = 'idle';
-let socketStateChangedAt = Date.now();
-const reconnectScheduler = createReconnectScheduler({
-    reconnect: () => startXeonBotInc(),
-    logger: console
-});
-const connectionWatchdog = setInterval(() => {
-    if (!hasConnectedBefore) return;
-    if (startupInProgress && startupStartedAt && Date.now() - startupStartedAt >= 120000) {
-        console.error('[WATCHDOG] Socket startup has been stuck for 120 seconds; exiting for supervisor restart.');
-        process.exit(1);
-        return;
-    }
-    if (!activeSocket) return;
-
-    const socket = activeSocket;
-    const webSocketReadyState = socket.ws?.readyState;
-    const stuckConnecting = socketConnectionState === 'connecting' &&
-        Date.now() - socketStateChangedAt >= 120000;
-    const socketClosedWhileMarkedOpen = socketConnectionState === 'open' &&
-        typeof webSocketReadyState === 'number' && webSocketReadyState !== 1;
-    if (!stuckConnecting && !socketClosedWhileMarkedOpen) return;
-
-    const reason = stuckConnecting
-        ? 'connection attempt did not open within 120 seconds'
-        : `WebSocket closed while connection state was open (readyState ${webSocketReadyState})`;
-    console.error(`[WATCHDOG] ${reason}; forcing a reconnect.`);
-    activeSocket = null;
-    socketConnectionState = 'closed';
-    socketStateChangedAt = Date.now();
-    try { socket.end?.(new Error(reason)); } catch (error) {
-        console.error('[WATCHDOG] Could not end stale socket:', error?.message || error);
-    }
-    reconnectScheduler.schedule(`watchdog: ${reason}`);
-}, 30000);
-connectionWatchdog.unref?.();
-
 async function startXeonBotInc() {
-    if (startupInProgress) {
-        console.log('[RECONNECT] Startup already in progress; ignoring duplicate request.');
-        return activeSocket;
-    }
-    startupInProgress = true;
-    startupStartedAt = Date.now();
     try {
         sessionLoaded = await loadSessionFromEnv();
         let { version, isLatest } = await fetchLatestBaileysVersion();
         const { state, saveCreds } = await useMultiFileAuthState('./session');
-        hasConnectedBefore = hasConnectedBefore || sessionLoaded || Boolean(state.creds?.registered);
 
         const pendingKeysPath = './session/.lordbot-pending-keys.json';
         if (fs.existsSync(pendingKeysPath)) {
@@ -412,9 +362,6 @@ async function startXeonBotInc() {
             keepAliveIntervalMs: 10000,
         });
 
-        activeSocket = XeonBotInc;
-        socketConnectionState = 'connecting';
-        socketStateChangedAt = Date.now();
         XeonBotInc.ev.on('creds.update', saveCreds);
         store.bind(XeonBotInc.ev);
 
@@ -425,11 +372,32 @@ async function startXeonBotInc() {
                 time: new Date().toISOString()
             }));
             try {
-                await processUpsertBatch(XeonBotInc, chatUpdate, {
-                    handleMessages,
-                    handleStatus,
-                    channelInfo
-                });
+                const mek = chatUpdate.messages?.[0];
+                if (!mek) {
+                    console.log('[INCOMING EVENT] No message object received');
+                    return;
+                }
+                if (!mek.message) return;
+                mek.message = (Object.keys(mek.message)[0] === 'ephemeralMessage')
+                    ? mek.message.ephemeralMessage.message : mek.message;
+                if (mek.key && mek.key.remoteJid === 'status@broadcast') {
+                    await handleStatus(XeonBotInc, chatUpdate); return;
+                }
+                if (!XeonBotInc.public && !mek.key.fromMe && chatUpdate.type === 'notify') {
+                    if (!mek.key?.remoteJid?.endsWith('@g.us')) return;
+                }
+                if (mek.key.id.startsWith('BAE5') && mek.key.id.length === 16) return;
+                if (XeonBotInc?.msgRetryCounterCache) XeonBotInc.msgRetryCounterCache.clear();
+                try {
+                    await handleMessages(XeonBotInc, chatUpdate, true);
+                } catch (err) {
+                    console.error('Error in handleMessages:', err);
+                    if (mek.key?.remoteJid) {
+                        await XeonBotInc.sendMessage(mek.key.remoteJid, {
+                            text: 'An error occurred while processing your message.', ...channelInfo
+                        }).catch(console.error);
+                    }
+                }
             } catch (err) { console.error('Error in messages.upsert:', err); }
         });
 
@@ -471,18 +439,9 @@ async function startXeonBotInc() {
         XeonBotInc.ev.on('connection.update', async (s) => {
             const { connection, lastDisconnect, qr } = s;
             if (qr && !sessionLoaded) console.log(chalk.yellow('QR generated — set SESSION_ID in .env to avoid this'));
-            if (connection === 'connecting' && activeSocket === XeonBotInc) {
-                socketConnectionState = 'connecting';
-                socketStateChangedAt = Date.now();
-                console.log(chalk.yellow('Connecting to WhatsApp...'));
-            }
+            if (connection === 'connecting') console.log(chalk.yellow('Connecting to WhatsApp...'));
 
             if (connection === 'open') {
-                if (activeSocket !== XeonBotInc) return;
-                hasConnectedBefore = true;
-                socketConnectionState = 'open';
-                socketStateChangedAt = Date.now();
-                reconnectScheduler.connected();
                 console.log(chalk.green('Connected to WhatsApp.'));
                 try {
     const botNumber = XeonBotInc.user.id.split(':')[0] + '@s.whatsapp.net';
@@ -511,19 +470,10 @@ async function startXeonBotInc() {
             }
 
             if (connection === 'close') {
-                if (activeSocket !== XeonBotInc) {
-                    console.log('[RECONNECT] Ignoring close event from a stale socket.');
-                    return;
-                }
-                activeSocket = null;
-                socketConnectionState = 'closed';
-                socketStateChangedAt = Date.now();
                 const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
                 const statusCode = lastDisconnect?.error?.output?.statusCode;
-                const disconnectMessage = lastDisconnect?.error?.message || 'unknown disconnect';
-                console.log(chalk.red(`Connection closed — statusCode: ${statusCode ?? 'unknown'} — ${disconnectMessage}`));
+                console.log(chalk.red('Connection closed — statusCode: ' + statusCode));
                 if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-                    reconnectScheduler.stop();
                     try {
                         const sessionDir = './session';
                         const markerPath = path.join(sessionDir, '.lordbot-session-hash');
@@ -550,7 +500,7 @@ async function startXeonBotInc() {
                     console.log(chalk.red('Session expired. Replace SESSION_ID in the hosting environment or use QR pairing.'));
                     process.exit(1);
                 }
-                if (shouldReconnect) reconnectScheduler.schedule(`WhatsApp connection closed (${statusCode ?? 'unknown'})`);
+                if (shouldReconnect) { console.log('Reconnecting in 5s...'); await delay(5000); startXeonBotInc(); }
             }
         });
 
@@ -587,26 +537,14 @@ async function startXeonBotInc() {
         return XeonBotInc;
     } catch (error) {
         console.error('Error starting bot:', error);
-        activeSocket = null;
-        socketConnectionState = 'closed';
-        socketStateChangedAt = Date.now();
-        reconnectScheduler.schedule(`socket startup failed: ${error?.message || error}`);
-        return null;
-    } finally {
-        startupInProgress = false;
-        startupStartedAt = null;
+        await delay(5000);
+        startXeonBotInc();
     }
 }
 
 startXeonBotInc().catch(err => { console.error('Fatal:', err); process.exit(1); });
-process.on('uncaughtException', (err) => {
-    console.error('Uncaught Exception; exiting for supervisor restart:', err?.stack || err);
-    process.exit(1);
-});
-process.on('unhandledRejection', (err) => {
-    console.error('Unhandled Rejection; exiting for supervisor restart:', err?.stack || err);
-    process.exit(1);
-});
+process.on('uncaughtException', (err) => { console.error('Uncaught Exception:', err); });
+process.on('unhandledRejection', (err) => console.error('Unhandled Rejection:', err));
 
 let file = require.resolve(__filename);
 fs.watchFile(file, () => {

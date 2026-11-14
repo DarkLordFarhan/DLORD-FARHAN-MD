@@ -167,51 +167,13 @@ async function handleMessages(sock, messageUpdate, printLog) {
             type,
             count: messages?.length
         }));
-
-        if (Array.isArray(messages) && messages.length > 1) {
-            let messagesToProcess = messages;
-            if (type === 'append') {
-                const cutoffSeconds = Date.now() / 1000 - 5 * 60;
-                messagesToProcess = messages.filter(candidate => {
-                    if (!candidate?.key?.fromMe || !candidate?.message) return false;
-                    const text = (
-                        candidate.message?.conversation ||
-                        candidate.message?.extendedTextMessage?.text ||
-                        candidate.message?.imageMessage?.caption ||
-                        candidate.message?.videoMessage?.caption ||
-                        ''
-                    ).trim();
-                    if (!text.startsWith('.')) return false;
-
-                    const timestampValue = candidate.messageTimestamp?.toNumber?.() ?? candidate.messageTimestamp;
-                    const timestampSeconds = Number(timestampValue);
-                    return !Number.isFinite(timestampSeconds) || timestampSeconds >= cutoffSeconds;
-                });
-            } else if (type !== 'notify') {
-                return;
-            }
-
-            for (const candidate of messagesToProcess) {
-                await handleMessages(sock, { ...messageUpdate, messages: [candidate] }, printLog);
-            }
-            return;
-        }
-
-        const message = messages?.[0];
-        if (!message?.message) return;
-
-        const messageText = (
-            message.message?.conversation ||
-            message.message?.extendedTextMessage?.text ||
-            message.message?.imageMessage?.caption ||
-            message.message?.videoMessage?.caption ||
-            ''
-        ).trim();
-        const isSelfCommand = message.key?.fromMe === true && messageText.startsWith('.');
-        if (type !== 'notify' && !(type === 'append' && isSelfCommand)) {
+        if (type !== 'notify') {
             console.log('[MAIN HANDLER] Ignored event type:', type);
             return;
         }
+
+        const message = messages[0];
+        if (!message?.message) return;
 
         // Reliable public menu/help dispatch before other command restrictions.
         const incomingChatId = message.key?.remoteJid;

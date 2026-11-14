@@ -89,11 +89,8 @@ test('news responds safely when the feed is unavailable', async () => {
 });
 
 
-test('help sends the supplied menu banner and a complete scrollable command text message', async () => {
-    const fs = require('node:fs');
-    const path = require('node:path');
+test('help sends the complete Ephoto, GIF, and AI menu in a separate text message', async () => {
     const helpCommand = require('../commands/help');
-    const settings = require('../settings');
     const sent = [];
     await helpCommand(
         { sendMessage: async (...args) => sent.push(args) },
@@ -101,40 +98,22 @@ test('help sends the supplied menu banner and a complete scrollable command text
         { key: { id: 'menu-test' } }
     );
 
-    assert.equal(sent.length, 2, 'expected the supplied menu banner followed by the scrollable text menu');
-    const banner = sent[0][1];
-    const menu = sent[1][1];
-
-    const bannerImage = fs.readFileSync(path.join(__dirname, '../assets/menu_bot_image.jpg'));
-    assert.ok(Buffer.isBuffer(banner.image), 'expected the supplied menu banner');
-    assert.deepEqual(banner.image, bannerImage);
-    assert.ok(banner.caption.length < 1024, 'banner caption should stay within the WhatsApp limit');
-    assert.ok(banner.caption.includes(`*${settings.botName}*`));
-    assert.ok(banner.caption.includes(`Owner: *${settings.botOwner}*`));
-    assert.match(banner.caption, /Time: \*.+ EAT\*/);
-    assert.ok(banner.caption.includes('State: *🟢 ONLINE*'));
-    assert.ok(banner.caption.includes('Owner WhatsApp: *+254795463911*'));
-
-    assert.equal(typeof menu.text, 'string');
-    assert.ok(!('image' in menu), 'the commands should be sent as scrollable text');
-    const commandLines = menu.text.split('\n');
-    const commandCount = commandLines.length;
-    assert.ok(banner.caption.includes(`Commands listed: *${commandCount}*`));
-    assert.ok(menu.text.length > 1024, 'the full menu should be long enough to scroll in chat');
-    assert.ok(commandLines.every(line => /^🔹 \./.test(line)),
-        'every command, with aliases separated, should have its own 🔹 line');
-    assert.ok(!menu.text.includes('*🌐 GENERAL*'), 'category headings should not appear in the command list');
-
+    const menuText = sent.map(([, payload]) => payload.text || '').find(text => text.includes('.metallic'));
+    assert.ok(menuText, 'expected full menu text to be sent separately');
+    assert.ok(menuText.length > 1024, 'menu should remain complete as a text message');
+    const widestLine = Math.max(...menuText.split('\n').map(line => Array.from(line).length));
+    assert.ok(widestLine <= 45, `menu should stay narrow; widest line was ${widestLine} characters`);
     for (const command of [
-        '.help', '.menu', '.status', '.uptime', '.staff', '.admins', '.delete', '.del',
-        '.vv (reply to view-once photo/video)', '.autostatus emoji <emojis>',
-        '.metallic <text>', '.ice <text>', '.snow <text>', '.impressive <text>',
-        '.matrix <text>', '.light <text>', '.neon <text>', '.devil <text>', '.purple <text>',
-        '.thunder <text>', '.leaves <text>', '.1917 <text>', '.arena <text>', '.hacker <text>',
-        '.sand <text>', '.blackpink <text>', '.glitch <text>', '.fire <text>',
-        '.gif <search term>', '.gpt <question>', '.gemini <question>', '.imagine <prompt>',
-        '.dalle <prompt>', '.flux <prompt>', '.sora <prompt>', '.git', '.github', '.repo'
+        '.metallic', '.ice', '.snow', '.impressive', '.matrix', '.light', '.neon',
+        '.devil', '.purple', '.thunder', '.leaves', '.1917', '.arena', '.hacker',
+        '.sand', '.blackpink', '.glitch', '.fire', '.gif <search term>',
+        '.gpt <question>', '.gemini <question>', '.imagine <prompt>',
+        '.dalle <prompt>', '.flux <prompt>', '.sora <prompt>',
+        '.vv (reply to view-once photo/video)', '.autostatus emoji <emojis>'
     ]) {
-        assert.ok(menu.text.includes(command), `expected scrollable text menu to include ${command}`);
+        assert.ok(menuText.includes(command), `expected menu to include ${command}`);
     }
+
+    const imageMessage = sent.find(([, payload]) => payload.image);
+    if (imageMessage) assert.ok(imageMessage[1].caption.length < 1024, 'image caption should stay below the WhatsApp caption limit');
 });
