@@ -70,10 +70,12 @@ test('yt-dlp output is read from the child process stdout property', () => {
 
 test('media download consumes the printed file path and returns its validated buffer', async () => {
     const originalLoad = Module._load;
+    let execOptions;
     Module._load = function (request, parent, isMain) {
         if (request === 'youtube-dl-exec') {
             return {
-                exec: async (_url, flags) => {
+                exec: async (_url, flags, options) => {
+                    execOptions = options;
                     const outputPath = flags.output.replace('%(id)s.%(ext)s', 'test-id.mp4');
                     await fs.writeFile(outputPath, Buffer.from('test-video'));
                     return { stdout: `${outputPath}\n` };
@@ -86,12 +88,14 @@ test('media download consumes the printed file path and returns its validated bu
     try {
         const files = await mediaDownloader.downloadMedia('https://youtu.be/abcdefghijk', {
             platform: 'youtube',
-            kind: 'video'
+            kind: 'video',
+            timeoutMs: 45000
         });
         assert.equal(files.length, 1);
         assert.equal(files[0].buffer.toString(), 'test-video');
         assert.equal(files[0].mimetype, 'video/mp4');
         assert.equal(files[0].fileName, 'test-id.mp4');
+        assert.equal(execOptions.timeout, 45000);
     } finally {
         Module._load = originalLoad;
     }
