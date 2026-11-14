@@ -15,9 +15,10 @@
     header p { margin: 0; font-size: 14px; line-height: 1.35; color: #c4b5fd; letter-spacing: .08em; }
     section { margin: 12px 0; padding: 14px 16px; background: rgba(23, 21, 47, .96); border: 1px solid #29264a; border-left: 4px solid #9b72f2; border-radius: 12px; }
     h2 { margin: 0 0 10px; font-size: 17px; letter-spacing: .04em; color: #cdbbff; }
-    ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; row-gap: 4px; }
-    li { min-width: 0; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 14px; line-height: 1.28; overflow-wrap: anywhere; color: #f4f0ff; }
-    .note { grid-column: 1 / -1; color: #d6cafa; }
+    ul { list-style: none; margin: 0; padding: 0; display: block; }
+    li { display: block; min-width: 0; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,.06); font-size: 14px; line-height: 1.28; overflow-wrap: anywhere; color: #f4f0ff; }
+    li:not(.note)::before { content: '🔹'; display: inline-block; width: 24px; color: #a78bfa; }
+    .note { color: #d6cafa; }
     footer { padding: 16px 8px 8px; text-align: center; color: #bda9ff; font-size: 13px; letter-spacing: .1em; }
   </style>
 </head>

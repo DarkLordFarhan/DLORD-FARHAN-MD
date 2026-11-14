@@ -4,15 +4,15 @@ const path = require('path');
 
 async function helpCommand(sock, chatId, message) {
     const nairobiTime = new Intl.DateTimeFormat('en-KE', {
-        timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short'
+      timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short'
     }).format(new Date());
-    const helpMessage = `
-*♛ LORD FARHAN BOT ♛*
-Version: *${settings.version || '3.0.0'}*
-Nairobi: *${nairobiTime} EAT*
-Owner: *${settings.botOwner || 'Farhan II'}*
-*POWERED BY FARHAN II*
-
+    const botName = settings.botName || 'LORD FARHAN BOT';
+    const ownerName = settings.botOwner || 'Farhan II';
+    const ownerWhatsApp = '+254795463911';
+    const menuImagePath = path.join(__dirname, '../assets/command-menu.png');
+    const menuHtmlPath = path.join(__dirname, '../assets/command-menu.html');
+    const menuHtml = fs.existsSync(menuHtmlPath) ? fs.readFileSync(menuHtmlPath, 'utf8') : '';
+    const menuBody = `
 *🌐 GENERAL*
 • .help / .menu
 • .ping
@@ -175,14 +175,31 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 
 ⚡ *LORD FARHAN BOT — POWERED BY FARHAN II* ⚡
 `;
+    const htmlItems = (menuHtml.match(/<li(?=\s|>)/g) || []).length;
+    const htmlNotes = (menuHtml.match(/<li class="note">/g) || []).length;
+    const htmlAliases = (menuHtml.match(/\.\w+\s\/\s\.\w+/g) || []).length;
+    const fallbackCommandCount = (menuBody.match(/^\s*•\s+\./gm) || []).length;
+    const fallbackAliases = (menuBody.match(/\.\w+\s\/\s\.\w+/g) || []).length;
+    const commandCount = htmlItems > htmlNotes
+        ? htmlItems - htmlNotes + htmlAliases
+        : fallbackCommandCount + fallbackAliases;
+    const introMessage = [
+        `*${botName}*`,
+        `Owner: *${ownerName}*`,
+    `Time: *${nairobiTime} EAT*`,
+    'State: *🟢 ONLINE*',
+        `Commands listed: *${commandCount}*`,
+        `Owner WhatsApp: *${ownerWhatsApp}*`
+    ].join('\n');
+    const fallbackMenuBody = menuBody.replace(/^(\s*)•\s+/gm, '$1🔹 ');
+    const helpMessage = `${introMessage}\n\n${fallbackMenuBody}`;
 
     try {
-        const imagePath = path.join(__dirname, '../assets/command-menu.png');
-        if (fs.existsSync(imagePath)) {
-            const imageBuffer = fs.readFileSync(imagePath);
+        if (fs.existsSync(menuImagePath)) {
+            const imageBuffer = fs.readFileSync(menuImagePath);
             await sock.sendMessage(chatId, {
                 image: imageBuffer,
-                caption: '♛ LORD FARHAN BOT — COMMAND MENU ♛',
+                caption: introMessage,
                 contextInfo: {
                     forwardingScore: 1,
                     isForwarded: true

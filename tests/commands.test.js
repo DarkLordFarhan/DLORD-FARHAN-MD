@@ -104,13 +104,28 @@ test('help sends one combined menu image with the banner and complete command li
     const payload = sent[0][1];
     assert.ok(Buffer.isBuffer(payload.image), 'expected the combined menu image');
     assert.ok(payload.caption.length < 1024, 'image caption should stay below the WhatsApp caption limit');
+    const settings = require('../settings');
+    assert.ok(payload.caption.includes(`*${settings.botName}*`));
+    assert.ok(payload.caption.includes(`Owner: *${settings.botOwner}*`));
+    assert.match(payload.caption, /Time: \*.+ EAT\*/);
+    assert.ok(payload.caption.includes('State: *🟢 ONLINE*'));
+    assert.ok(payload.caption.includes('Owner WhatsApp: *+254795463911*'));
 
     const menuImagePath = path.join(__dirname, '../assets/command-menu.png');
     const menuHtmlPath = path.join(__dirname, '../assets/command-menu.html');
     const menuImage = fs.readFileSync(menuImagePath);
     const menuHtml = fs.readFileSync(menuHtmlPath, 'utf8');
+    const itemCount = (menuHtml.match(/<li(?=\s|>)/g) || []).length;
+    const noteCount = (menuHtml.match(/<li class="note">/g) || []).length;
+    const aliasCount = (menuHtml.match(/\.\w+\s\/\s\.\w+/g) || []).length;
+    const commandCount = itemCount - noteCount + aliasCount;
+    assert.ok(payload.caption.includes(`Commands listed: *${commandCount}*`));
     assert.deepEqual(payload.image, menuImage);
     assert.match(menuHtml, /<img src="bot_image\.jpg"/);
+    assert.match(menuHtml, /ul\s*\{[^}]*display:\s*block/);
+    assert.match(menuHtml, /li:not\(\.note\)::before\s*\{[^}]*content:\s*'🔹'/);
+    assert.equal(aliasCount, 4, 'menu command total should count the documented aliases');
+    assert.doesNotMatch(menuHtml, /grid-template-columns/);
     assert.ok(menuImage.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
     const width = menuImage.readUInt32BE(16);
     const height = menuImage.readUInt32BE(20);
