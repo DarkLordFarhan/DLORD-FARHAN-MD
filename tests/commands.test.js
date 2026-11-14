@@ -141,7 +141,7 @@ test('help sends one combined menu image with the banner and complete command li
         '.gif &lt;search term&gt;', '.gpt &lt;question&gt;', '.gemini &lt;question&gt;',
         '.imagine &lt;prompt&gt;', '.dalle &lt;prompt&gt;', '.flux &lt;prompt&gt;',
         '.sora &lt;prompt&gt;', '.vv (reply to view-once photo/video)',
-        '.autostatus emoji &lt;emojis&gt;'
+        '.autostatus emoji &lt;emojis&gt;', '.repo'
     ]) {
         assert.ok(menuHtml.includes(command), `expected menu image source to include ${command}`);
     }

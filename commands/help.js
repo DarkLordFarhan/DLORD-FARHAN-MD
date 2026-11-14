@@ -172,6 +172,7 @@ async function helpCommand(sock, chatId, message) {
 *💻 GITHUB*
 • .git
 • .github
+• .repo
 
 ⚡ *LORD FARHAN BOT — POWERED BY FARHAN II* ⚡
 `;
