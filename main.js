@@ -61,6 +61,7 @@ const { handleAntitagCommand, handleTagDetection } = require('./commands/antitag
 const { Antilink } = require('./lib/antilink');
 const { handleMentionDetection, mentionToggleCommand, setMentionCommand } = require('./commands/mention');
 const memeCommand = require('./commands/meme');
+const gifCommand = require('./commands/gif');
 const tagCommand = require('./commands/tag');
 const tagNotAdminCommand = require('./commands/tagnotadmin');
 const hideTagCommand = require('./commands/hidetag');
@@ -601,6 +602,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             case userMessage === '.meme':
                 await memeCommand(sock, chatId, message);
+                break;
+            case userMessage === '.gif' || userMessage.startsWith('.gif '):
+                await gifCommand(sock, chatId, message);
                 break;
             case userMessage === '.joke':
                 await jokeCommand(sock, chatId, message);

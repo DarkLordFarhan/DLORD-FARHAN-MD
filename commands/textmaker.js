@@ -1,5 +1,6 @@
 const axios = require('axios');
 const mumaker = require('mumaker');
+axios.defaults.timeout = 30000;
 
 // Base channel info template
 const channelInfo = {
@@ -22,12 +23,15 @@ const messageTemplates = {
 
 async function textmakerCommand(sock, chatId, message, q, type) {
     try {
-        if (!q) {
-            return await sock.sendMessage(chatId, messageTemplates.error("Please provide text to generate\nExample: .metallic Nick"));
-        }
-
-        // Extract text
-        const text = q.split(' ').slice(1).join(' ');
+        const rawText = String(
+            message.message?.conversation ||
+            message.message?.extendedTextMessage?.text ||
+            message.message?.imageMessage?.caption ||
+            message.message?.videoMessage?.caption ||
+            q ||
+            ''
+        ).trim();
+        const text = rawText.replace(/^\S+\s*/, '').trim();
 
         if (!text) {
             return await sock.sendMessage(chatId, messageTemplates.error("Please provide text to generate\nExample: .metallic Nick"));
@@ -109,4 +113,4 @@ async function textmakerCommand(sock, chatId, message, q, type) {
     }
 }
 
-module.exports = textmakerCommand; 
+module.exports = textmakerCommand;

@@ -100,6 +100,27 @@ async function helpCommand(sock, chatId, message) {
 ║ 💎 .igs <instagram link>
 ╚══════════════════════════════════════════════╝
 
+╔══════════════════ ✨ TEXT EFFECTS ══════════════════╗
+║ 💎 .metallic <text>
+║ 💎 .ice <text>
+║ 💎 .snow <text>
+║ 💎 .impressive <text>
+║ 💎 .matrix <text>
+║ 💎 .light <text>
+║ 💎 .neon <text>
+║ 💎 .devil <text>
+║ 💎 .purple <text>
+║ 💎 .thunder <text>
+║ 💎 .leaves <text>
+║ 💎 .1917 <text>
+║ 💎 .arena <text>
+║ 💎 .hacker <text>
+║ 💎 .sand <text>
+║ 💎 .blackpink <text>
+║ 💎 .glitch <text>
+║ 💎 .fire <text>
+╚═══════════════════════════════════════════════════╝
+
 ╔══════════════════ 🖼️ PIES COMMANDS ═════════════════╗
 ║ 💎 .pies <country>
 ║ 💎 .china
@@ -139,6 +160,7 @@ async function helpCommand(sock, chatId, message) {
 ║ 💎 .ship @user
 ║ 💎 .simp @user
 ║ 💎 .stupid @user [text]
+║ 💎 .gif <search term>
 ╚══════════════════════════════════════════════╝
 
 ╔════════════════ 📥 DOWNLOAD COMMANDS ═══════════════╗
