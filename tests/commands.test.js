@@ -117,23 +117,17 @@ test('help sends the supplied menu banner and a complete scrollable command text
 
     assert.equal(typeof menu.text, 'string');
     assert.ok(!('image' in menu), 'the commands should be sent as scrollable text');
-    const commandLines = menu.text.split('\n').filter(line => line.trim().startsWith('🔹 .'));
-    const aliasLines = menu.text.match(/\s\/\s\.\S+/g) || [];
-    const commandCount = commandLines.length + aliasLines.length;
+    const commandLines = menu.text.split('\n');
+    const commandCount = commandLines.length;
     assert.ok(banner.caption.includes(`Commands listed: *${commandCount}*`));
     assert.ok(menu.text.length > 1024, 'the full menu should be long enough to scroll in chat');
-    assert.ok(commandLines.every(line => line.trim().startsWith('🔹 .')),
-        'each listed command should have a 🔹 prefix');
-    const sections = ['🌐 GENERAL', '👮 ADMIN', '👑 OWNER', '🎨 IMAGE & STICKER',
-        '✨ TEXT EFFECTS', '🖼️ PIES', '🎮 GAMES', '🤖 AI', '🎯 FUN',
-        '📥 DOWNLOADS', '💻 GITHUB'];
-    sections.forEach((section, index) => {
-        assert.ok(menu.text.includes(`${index + 1}. *${section}*`),
-            `expected numbered menu section ${index + 1}: ${section}`);
-    });
+    assert.ok(commandLines.every(line => /^🔹 \./.test(line)),
+        'every command, with aliases separated, should have its own 🔹 line');
+    assert.ok(!menu.text.includes('*🌐 GENERAL*'), 'category headings should not appear in the command list');
 
     for (const command of [
-        '.help / .menu', '.vv (reply to view-once photo/video)', '.autostatus emoji <emojis>',
+        '.help', '.menu', '.status', '.uptime', '.staff', '.admins', '.delete', '.del',
+        '.vv (reply to view-once photo/video)', '.autostatus emoji <emojis>',
         '.metallic <text>', '.ice <text>', '.snow <text>', '.impressive <text>',
         '.matrix <text>', '.light <text>', '.neon <text>', '.devil <text>', '.purple <text>',
         '.thunder <text>', '.leaves <text>', '.1917 <text>', '.arena <text>', '.hacker <text>',

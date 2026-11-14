@@ -178,8 +178,12 @@ async function helpCommand(sock, chatId, message) {
 `;
 
     const listedCommands = (menuBody.match(/^•\s+\.\S+/gm) || []).length;
-    const aliasCommands = (menuBody.match(/\s\/\s\.\S+/g) || []).length;
-    const commandCount = listedCommands + aliasCommands;
+    const commandLines = menuBody.split('\n').flatMap(rawLine => {
+        const line = rawLine.trim();
+        if (!line.startsWith('• .')) return [];
+        return line.slice(2).split(/\s+\/\s+/).map(command => `🔹 ${command.trim()}`);
+    });
+    const commandCount = commandLines.length;
 
     const introMessage = [
         `*${botName}*`,
@@ -191,12 +195,7 @@ async function helpCommand(sock, chatId, message) {
         `Owner WhatsApp: *${OWNER_WHATSAPP}*`
     ].join('\n');
 
-    let categoryNumber = 0;
-    const numberedMenuBody = menuBody.trimStart()
-        .replace(/^\*([^*]+)\*$/gm, (_, title) => `${++categoryNumber}. *${title}*`);
-    const scrolledMenu = `🔹 *COMMAND MENU* 🔹\n\n${numberedMenuBody}`
-        .replace(/^(\s*)•\s+/gm, '$1🔹 ')
-        .trimEnd();
+    const scrolledMenu = commandLines.join('\n');
 
     const contextInfo = {
         forwardingScore: 1,
