@@ -31,8 +31,23 @@ test('self-chat append commands reach menu and ping handlers', () => {
             assert.ok(Buffer.isBuffer(sent[0][1].image));
             assert.ok(sent[1][1].text.split('\\n').every(line => line.startsWith('🔹 .')));
 
+            sent.length = 0;
+            const batch = Array.from({ length: 79 }, (_, index) => ({
+                key: { remoteJid: '254795463911@s.whatsapp.net', fromMe: false, id: 'old-' + index },
+                message: { conversation: 'older synchronized message ' + index }
+            }));
+            batch.push({
+                key: { remoteJid: '254795463911@s.whatsapp.net', fromMe: true, id: 'batch-menu' },
+                messageTimestamp: Math.floor(Date.now() / 1000),
+                message: { conversation: '.menu' }
+            });
+            await handleMessages(sock, { type: 'append', messages: batch }, () => {});
+            assert.equal(sent.length, 2, 'a self-chat .menu in position 80 must not be skipped');
+            assert.ok(Buffer.isBuffer(sent[0][1].image));
+
+            sent.length = 0;
             await handleMessages(sock, update(true, '.ping'), () => {});
-            assert.equal(sent.length, 4, 'self-chat .ping sends its responses');
+            assert.equal(sent.length, 2, 'self-chat .ping sends its responses');
             process.stdout.write('SELF_CHAT_DISPATCH_OK\\n');
             process.exit(0);
         })().catch(error => {
