@@ -3,31 +3,77 @@ const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
 
-async function githubCommand(sock, chatId, message) {
+const REPOSITORY = 'DarkLordFarhan/DLORD-FARHAN-MD';
+const REPOSITORY_API_URL = `https://api.github.com/repos/${REPOSITORY}`;
+
+function buildRepositoryText(repository) {
+  const updatedAt = repository.updated_at
+    ? moment(repository.updated_at).tz('Africa/Nairobi').format('DD/MM/YY HH:mm:ss [EAT]')
+    : 'Unknown';
+  const sizeMb = Number.isFinite(Number(repository.size))
+    ? (Number(repository.size) / 1024).toFixed(2)
+    : '0.00';
+  const description = String(repository.description || 'No description provided.')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
+
+  return [
+    '*DLORD-FARHAN-MD — GitHub Repository*',
+    '',
+    `✩ *Repository:* ${repository.full_name || REPOSITORY}`,
+    `✩ *Description:* ${description}`,
+    `✩ *Owner:* ${repository.owner?.login || 'DarkLordFarhan'}`,
+    `✩ *Stars:* ${repository.stargazers_count ?? 0}`,
+    `✩ *Forks:* ${repository.forks_count ?? 0}`,
+    `✩ *Watchers:* ${repository.subscribers_count ?? repository.watchers_count ?? 0}`,
+    `✩ *Open issues:* ${repository.open_issues_count ?? 0}`,
+    `✩ *Language:* ${repository.language || 'Not specified'}`,
+    `✩ *Default branch:* ${repository.default_branch || 'main'}`,
+    `✩ *Size:* ${sizeMb} MB`,
+    `✩ *Last updated:* ${updatedAt}`,
+    `✩ *Clone:* ${repository.clone_url || `https://github.com/${REPOSITORY}.git`}`,
+    `✩ *Repository URL:* ${repository.html_url || `https://github.com/${REPOSITORY}`}`
+  ].join('\n');
+}
+
+async function githubCommand(sock, chatId, message, options = {}) {
+  const fetchRepository = options.fetch || fetch;
   try {
-    const res = await fetch('https://api.github.com/repos/DarkLordFarhan/LordFarhanBot-MD');
-    if (!res.ok) throw new Error('Error fetching repository data');
-    const json = await res.json();
+    const response = await fetchRepository(REPOSITORY_API_URL, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'DLORD-FARHAN-MD-WhatsApp-Bot'
+      }
+    });
 
-    let txt = '*乂  LordFarhan Bot MD  乂*\n\n';
-    txt += '✩  *Name* : ' + json.name + '\n';
-    txt += '✩  *Watchers* : ' + json.watchers_count + '\n';
-    txt += '✩  *Size* : ' + (json.size / 1024).toFixed(2) + ' MB\n';
-    txt += '✩  *Last Updated* : ' + moment(json.updated_at).format('DD/MM/YY - HH:mm:ss') + '\n';
-    txt += '✩  *URL* : ' + json.html_url + '\n';
-    txt += '✩  *Forks* : ' + json.forks_count + '\n';
-    txt += '✩  *Stars* : ' + json.stargazers_count + '\n\n';
-    txt += '💥 *LordFarhan Bot MD*\n';
-    txt += '👤 *Owner* : DarkLordFarhan\n';
-    txt += '📢 *Channel* : https://whatsapp.com/channel/0029Vb8ANT4J93weNOlcux3g';
+    if (!response.ok) {
+      const reason = response.status === 404
+        ? 'The configured GitHub repository could not be found.'
+        : `GitHub returned HTTP ${response.status || 'error'}.`;
+      await sock.sendMessage(chatId, { text: `❌ ${reason} Please try again later.` }, { quoted: message });
+      return;
+    }
 
-    const imgPath = path.join(__dirname, '../assets/bot_image.jpg');
-    const imgBuffer = fs.readFileSync(imgPath);
+    const repository = await response.json();
+    const text = buildRepositoryText(repository);
+    const imagePath = options.imagePath || path.join(__dirname, '../assets/bot_image.jpg');
 
-    await sock.sendMessage(chatId, { image: imgBuffer, caption: txt }, { quoted: message });
+    if (fs.existsSync(imagePath)) {
+      await sock.sendMessage(chatId, {
+        image: fs.readFileSync(imagePath),
+        caption: text
+      }, { quoted: message });
+    } else {
+      await sock.sendMessage(chatId, { text }, { quoted: message });
+    }
   } catch (error) {
-    await sock.sendMessage(chatId, { text: '❌ Error fetching repository information.' }, { quoted: message });
+    console.error('Error fetching GitHub repository information:', error);
+    await sock.sendMessage(chatId, {
+      text: '❌ Could not fetch GitHub repository details right now. Please try again later.'
+    }, { quoted: message });
   }
 }
 
 module.exports = githubCommand;
+module.exports.REPOSITORY_API_URL = REPOSITORY_API_URL;
+module.exports.buildRepositoryText = buildRepositoryText;

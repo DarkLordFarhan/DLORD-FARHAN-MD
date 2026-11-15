@@ -34,14 +34,7 @@ async function warnCommand(sock, chatId, senderId, mentionedJids, message) {
 
         // Check admin status first
         try {
-            const { isSenderAdmin, isBotAdmin } = await isAdmin(sock, chatId, senderId);
-            
-            if (!isBotAdmin) {
-                await sock.sendMessage(chatId, { 
-                    text: '❌ Error: Please make the bot an admin first to use this command.'
-                });
-                return;
-            }
+            const { isSenderAdmin } = await isAdmin(sock, chatId, senderId);
 
             if (!isSenderAdmin) {
                 await sock.sendMessage(chatId, { 
@@ -52,7 +45,7 @@ async function warnCommand(sock, chatId, senderId, mentionedJids, message) {
         } catch (adminError) {
             console.error('Error checking admin status:', adminError);
             await sock.sendMessage(chatId, { 
-                text: '❌ Error: Please make sure the bot is an admin of this group.'
+                text: '❌ Error: Could not verify your group-admin status. Please try again.'
             });
             return;
         }
@@ -110,17 +103,24 @@ async function warnCommand(sock, chatId, senderId, mentionedJids, message) {
                 // Add delay to avoid rate limiting
                 await new Promise(resolve => setTimeout(resolve, 1000));
 
-                await sock.groupParticipantsUpdate(chatId, [userToWarn], "remove");
-                delete warnings[chatId][userToWarn];
-                fs.writeFileSync(warningsPath, JSON.stringify(warnings, null, 2));
-                
-                const kickMessage = `*『 AUTO-KICK 』*\n\n` +
-                    `@${userToWarn.split('@')[0]} has been removed from the group after receiving 3 warnings! ⚠️`;
+                try {
+                    await sock.groupParticipantsUpdate(chatId, [userToWarn], "remove");
+                    delete warnings[chatId][userToWarn];
+                    fs.writeFileSync(warningsPath, JSON.stringify(warnings, null, 2));
 
-                await sock.sendMessage(chatId, { 
-                    text: kickMessage,
-                    mentions: [userToWarn]
-                });
+                    const kickMessage = `*『 AUTO-KICK 』*\n\n` +
+                        `@${userToWarn.split('@')[0]} has been removed from the group after receiving 3 warnings! ⚠️`;
+
+                    await sock.sendMessage(chatId, {
+                        text: kickMessage,
+                        mentions: [userToWarn]
+                    });
+                } catch (kickError) {
+                    console.error('Could not auto-kick after three warnings:', kickError);
+                    await sock.sendMessage(chatId, {
+                        text: 'Three warnings have been recorded, but WhatsApp requires the bot account to be a group admin to remove the member.'
+                    });
+                }
             }
         } catch (error) {
             console.error('Error in warn command:', error);
@@ -142,7 +142,7 @@ async function warnCommand(sock, chatId, senderId, mentionedJids, message) {
         } else {
             try {
                 await sock.sendMessage(chatId, { 
-                    text: '❌ Failed to warn user. Make sure the bot is admin and has sufficient permissions.'
+                    text: '❌ Failed to process the warning.'
                 });
             } catch (sendError) {
                 console.error('Error sending error message:', sendError);

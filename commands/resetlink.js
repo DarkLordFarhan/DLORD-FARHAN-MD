@@ -1,20 +1,14 @@
+const isAdmin = require('../lib/isAdmin');
+
 async function resetlinkCommand(sock, chatId, senderId) {
     try {
-        // Check if sender is admin
-        const groupMetadata = await sock.groupMetadata(chatId);
-        const isAdmin = groupMetadata.participants
-            .filter(p => p.admin)
-            .map(p => p.id)
-            .includes(senderId);
+        if (!chatId.endsWith('@g.us')) {
+            await sock.sendMessage(chatId, { text: 'This command can only be used in groups.' });
+            return;
+        }
+        const { isSenderAdmin, isBotAdmin } = await isAdmin(sock, chatId, senderId);
 
-        // Check if bot is admin
-        const botId = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-        const isBotAdmin = groupMetadata.participants
-            .filter(p => p.admin)
-            .map(p => p.id)
-            .includes(botId);
-
-        if (!isAdmin) {
+        if (!isSenderAdmin) {
             await sock.sendMessage(chatId, { text: '❌ Only admins can use this command!' });
             return;
         }
@@ -38,4 +32,4 @@ async function resetlinkCommand(sock, chatId, senderId) {
     }
 }
 
-module.exports = resetlinkCommand; 
+module.exports = resetlinkCommand;

@@ -8,13 +8,9 @@ async function unbanCommand(sock, chatId, message) {
     // Restrict in groups to admins; in private to owner/sudo
     const isGroup = chatId.endsWith('@g.us');
     if (isGroup) {
-        const senderId = message.key.participant || message.key.remoteJid;
-        const { isSenderAdmin, isBotAdmin } = await isAdmin(sock, chatId, senderId);
-        if (!isBotAdmin) {
-            await sock.sendMessage(chatId, { text: 'Please make the bot an admin to use .unban', ...channelInfo }, { quoted: message });
-            return;
-        }
-        if (!isSenderAdmin && !message.key.fromMe) {
+        const senderId = message.key.participant || (message.key.fromMe ? sock.user?.id : message.key.remoteJid);
+        const { isSenderAdmin } = await isAdmin(sock, chatId, senderId);
+        if (!isSenderAdmin) {
             await sock.sendMessage(chatId, { text: 'Only group admins can use .unban', ...channelInfo }, { quoted: message });
             return;
         }
@@ -70,4 +66,4 @@ async function unbanCommand(sock, chatId, message) {
     }
 }
 
-module.exports = unbanCommand; 
+module.exports = unbanCommand;

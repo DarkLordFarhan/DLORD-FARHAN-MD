@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
+const isAdmin = require('../lib/isAdmin');
+const isLinkedOwner = require('../lib/isLinkedOwner');
 
 const USER_GROUP_DATA = path.join(__dirname, '../data/userGroupData.json');
 
@@ -78,12 +80,9 @@ async function handleChatbotCommand(sock, chatId, message, match) {
 
     const data = loadUserGroupData();
     
-    // Get bot's number
-    const botNumber = sock.user.id.split(':')[0] + '@s.whatsapp.net';
-    
-    // Check if sender is bot owner
-    const senderId = message.key.participant || message.participant || message.pushName || message.key.remoteJid;
-    const isOwner = senderId === botNumber;
+    // Match the logged-in WhatsApp account, including device-suffixed and LID forms.
+    const senderId = message.key.participant || (message.key.fromMe ? sock.user?.id : message.key.remoteJid);
+    const isOwner = isLinkedOwner(sock, message, senderId);
 
     // If it's the bot owner, allow access immediately
     if (isOwner) {
@@ -123,17 +122,17 @@ async function handleChatbotCommand(sock, chatId, message, match) {
     }
 
     // For non-owners, check admin status
-    let isAdmin = false;
+    let senderIsAdmin = false;
     if (chatId.endsWith('@g.us')) {
         try {
-            const groupMetadata = await sock.groupMetadata(chatId);
-            isAdmin = groupMetadata.participants.some(p => p.id === senderId && (p.admin === 'admin' || p.admin === 'superadmin'));
+            const adminStatus = await isAdmin(sock, chatId, senderId);
+            senderIsAdmin = adminStatus.isSenderAdmin;
         } catch (e) {
-            console.warn('⚠️ Could not fetch group metadata. Bot might not be admin.');
+            console.warn('⚠️ Could not verify the caller’s group-admin status.');
         }
     }
 
-    if (!isAdmin && !isOwner) {
+    if (!senderIsAdmin && !isOwner) {
         await showTyping(sock, chatId);
         return sock.sendMessage(chatId, {
             text: '❌ Only group admins or the bot owner can use this command.',
@@ -430,4 +429,4 @@ You:
 module.exports = {
     handleChatbotCommand,
     handleChatbotResponse
-}; 
+};

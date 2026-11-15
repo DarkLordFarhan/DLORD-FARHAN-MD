@@ -36,6 +36,8 @@ const axios = require('axios');
 const ffmpeg = require('fluent-ffmpeg');
 const { isSudo } = require('./lib/index');
 const isOwnerOrSudo = require('./lib/isOwner');
+const isLinkedOwner = require('./lib/isLinkedOwner');
+const shouldProcessUpsertMessage = require('./lib/should-process-upsert-message');
 const { autotypingCommand, isAutotypingEnabled, handleAutotypingForMessage, handleAutotypingForCommand, showTypingAfterCommand } = require('./commands/autotyping');
 const { autoreadCommand, isAutoreadEnabled, handleAutoread } = require('./commands/autoread');
 
@@ -159,6 +161,16 @@ const channelInfo = {
     }
 };
 
+function readIsPublicMode() {
+    try {
+        const data = JSON.parse(fs.readFileSync('./data/messageCount.json', 'utf8'));
+        return typeof data.isPublic === 'boolean' ? data.isPublic : true;
+    } catch (error) {
+        console.error('Error checking access mode:', error);
+        return true;
+    }
+}
+
 async function handleMessages(sock, messageUpdate, printLog) {
     let chatId = null;
     try {
@@ -167,13 +179,14 @@ async function handleMessages(sock, messageUpdate, printLog) {
             type,
             count: messages?.length
         }));
-        if (type !== 'notify') {
+        if (type !== 'notify' && type !== 'append') {
             console.log('[MAIN HANDLER] Ignored event type:', type);
             return;
         }
 
-        const message = messages[0];
+        const message = messages?.[0];
         if (!message?.message) return;
+        if (type === 'append' && !shouldProcessUpsertMessage(message, type)) return;
 
         // Reliable public menu/help dispatch before other command restrictions.
         const incomingChatId = message.key?.remoteJid;
@@ -187,6 +200,8 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         if (['.menu', '.help', '.bot', '.list'].includes(incomingText)) {
             chatId = incomingChatId;
+            const menuSenderId = message.key?.participant || incomingChatId;
+            if (!readIsPublicMode() && !isLinkedOwner(sock, message, menuSenderId)) return;
             console.log('[MENU] Request received from', message.key?.participant || incomingChatId);
             try {
                 await helpCommand(sock, incomingChatId, message, global.channelLink);
@@ -215,10 +230,11 @@ async function handleMessages(sock, messageUpdate, printLog) {
         }
 
         chatId = message.key.remoteJid;
-        const senderId = message.key.participant || message.key.remoteJid;
         const isGroup = chatId.endsWith('@g.us');
+        const senderId = message.key.participant || (message.key.fromMe && isGroup ? sock.user?.id : message.key.remoteJid);
         const senderIsSudo = await isSudo(senderId);
         const senderIsOwnerOrSudo = await isOwnerOrSudo(senderId, sock, chatId);
+        const isLinkedOwnerMessage = isLinkedOwner(sock, message, senderId);
 
         // Handle button responses
         if (message.message?.buttonsResponseMessage) {
@@ -263,15 +279,8 @@ async function handleMessages(sock, messageUpdate, printLog) {
             console.log(`📝 Command used in ${isGroup ? 'group' : 'private'}: ${userMessage}`);
         }
         // Read bot mode once; don't early-return so moderation can still run in private mode
-        let isPublic = true;
-        try {
-            const data = JSON.parse(fs.readFileSync('./data/messageCount.json'));
-            if (typeof data.isPublic === 'boolean') isPublic = data.isPublic;
-        } catch (error) {
-            console.error('Error checking access mode:', error);
-            // default isPublic=true on error
-        }
-        const isOwnerOrSudoCheck = message.key.fromMe || senderIsOwnerOrSudo;
+        const isPublic = readIsPublicMode();
+        const isOwnerOrSudoCheck = message.key.fromMe || senderIsOwnerOrSudo || isLinkedOwnerMessage;
         // Check if user is banned (skip ban check for unban command)
         if (isBanned(senderId) && !userMessage.startsWith('.unban')) {
             // Only respond occasionally to avoid spam
@@ -312,7 +321,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
         }
 
         // PM blocker: block non-owner DMs when enabled (do not ban)
-        if (!isGroup && !message.key.fromMe && !senderIsSudo) {
+        if (!isGroup && !isLinkedOwnerMessage && !senderIsSudo) {
             try {
                 const pmState = readPmBlockerState();
                 if (pmState.enabled) {
@@ -335,26 +344,23 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await handleTagDetection(sock, chatId, message, senderId);
                 await handleMentionDetection(sock, chatId, message);
 
-                // Only run chatbot in public mode or for owner/sudo
-                if (isPublic || isOwnerOrSudoCheck) {
+                // Private mode is limited to the linked WhatsApp account, not sudo users.
+                if (isPublic || isLinkedOwnerMessage) {
                     await handleChatbotResponse(sock, chatId, message, userMessage, senderId);
                 }
             }
             return;
         }
-        // In private mode, only owner/sudo can run commands
-        if (!isPublic && !isOwnerOrSudoCheck) {
-            if (userMessage === '.vv') {
-                await sock.sendMessage(chatId, {
-                    text: '🔒 The bot is in private mode. Only the owner or sudo users can use .vv.'
-                }, { quoted: message });
-            }
+        // Private mode accepts commands only from the WhatsApp account linked to this bot.
+        if (!isPublic && !isLinkedOwnerMessage) {
             return;
         }
 
         // List of admin commands
         const adminCommands = ['.mute', '.unmute', '.ban', '.unban', '.promote', '.demote', '.kick', '.tagall', '.tagnotadmin', '.hidetag', '.antilink', '.antitag', '.setgdesc', '.setgname', '.setgpp'];
         const isAdminCommand = adminCommands.some(cmd => userMessage.startsWith(cmd));
+        const botAdminRequiredCommands = ['.mute', '.unmute', '.promote', '.demote', '.kick', '.setgdesc', '.setgname', '.setgpp'];
+        const isBotAdminRequiredCommand = botAdminRequiredCommands.some(cmd => userMessage.startsWith(cmd));
 
         // List of owner commands
         const ownerCommands = ['.mode', '.autostatus', '.antidelete', '.cleartmp', '.setpp', '.clearsession', '.areact', '.autoreact', '.autotyping', '.autoread', '.pmblocker'];
@@ -369,26 +375,20 @@ async function handleMessages(sock, messageUpdate, printLog) {
             isSenderAdmin = adminStatus.isSenderAdmin;
             isBotAdmin = adminStatus.isBotAdmin;
 
-            if (!isBotAdmin) {
-                await sock.sendMessage(chatId, { text: 'Please make the bot an admin to use admin commands.', ...channelInfo }, { quoted: message });
+            if (!isSenderAdmin) {
+                await sock.sendMessage(chatId, {
+                    text: 'Sorry, only group admins can use this command.',
+                    ...channelInfo
+                }, { quoted: message });
                 return;
             }
 
-            if (
-                userMessage.startsWith('.mute') ||
-                userMessage === '.unmute' ||
-                userMessage.startsWith('.ban') ||
-                userMessage.startsWith('.unban') ||
-                userMessage.startsWith('.promote') ||
-                userMessage.startsWith('.demote')
-            ) {
-                if (!isSenderAdmin && !message.key.fromMe) {
-                    await sock.sendMessage(chatId, {
-                        text: 'Sorry, only group admins can use this command.',
-                        ...channelInfo
-                    }, { quoted: message });
-                    return;
-                }
+            if (isBotAdminRequiredCommand && !isBotAdmin) {
+                await sock.sendMessage(chatId, {
+                    text: 'WhatsApp requires the bot account to be a group admin for this action.',
+                    ...channelInfo
+                }, { quoted: message });
+                return;
             }
         }
 
@@ -486,9 +486,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await statusCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.mode'):
-                // Check if sender is the owner
-                if (!message.key.fromMe && !senderIsOwnerOrSudo) {
-                    await sock.sendMessage(chatId, { text: 'Only bot owner can use this command!', ...channelInfo }, { quoted: message });
+                // Mode changes are restricted to the linked WhatsApp owner account.
+                if (!isLinkedOwnerMessage) {
+                    await sock.sendMessage(chatId, { text: 'Only the linked owner number can change bot mode.', ...channelInfo }, { quoted: message });
                     return;
                 }
                 // Read current data first
@@ -579,26 +579,12 @@ async function handleMessages(sock, messageUpdate, printLog) {
                     }, { quoted: message });
                     return;
                 }
-                if (!isBotAdmin) {
-                    await sock.sendMessage(chatId, {
-                        text: 'Please make the bot an admin first.',
-                        ...channelInfo
-                    }, { quoted: message });
-                    return;
-                }
                 await handleAntilinkCommand(sock, chatId, userMessage, senderId, isSenderAdmin, message);
                 break;
             case userMessage.startsWith('.antitag'):
                 if (!isGroup) {
                     await sock.sendMessage(chatId, {
                         text: 'This command can only be used in groups.',
-                        ...channelInfo
-                    }, { quoted: message });
-                    return;
-                }
-                if (!isBotAdmin) {
-                    await sock.sendMessage(chatId, {
-                        text: 'Please make the bot an admin first.',
                         ...channelInfo
                     }, { quoted: message });
                     return;
@@ -782,10 +768,8 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
                 const adminStatus = await isAdmin(sock, chatId, senderId);
                 isSenderAdmin = adminStatus.isSenderAdmin;
-                isBotAdmin = adminStatus.isBotAdmin;
-
-                if (!isBotAdmin) {
-                    await sock.sendMessage(chatId, { text: '*Bot must be admin to use this feature*', ...channelInfo }, { quoted: message });
+                if (!isSenderAdmin) {
+                    await sock.sendMessage(chatId, { text: '*Only group admins can configure this feature.*', ...channelInfo }, { quoted: message });
                     return;
                 }
 

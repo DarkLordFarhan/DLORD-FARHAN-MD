@@ -16,6 +16,7 @@ const chalk = require('chalk');
 const FileType = require('file-type');
 const axios = require('axios');
 const { handleMessages, handleGroupParticipantUpdate, handleStatus } = require('./main');
+const shouldProcessUpsertMessage = require('./lib/should-process-upsert-message');
 const PhoneNumber = require('awesome-phonenumber');
 const { imageToWebp, videoToWebp, writeExifImg, writeExifVid } = require('./lib/exif');
 const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetch, await, sleep, reSize } = require('./lib/myfunc');
@@ -372,30 +373,35 @@ async function startXeonBotInc() {
                 time: new Date().toISOString()
             }));
             try {
-                const mek = chatUpdate.messages?.[0];
-                if (!mek) {
+                const messages = Array.isArray(chatUpdate?.messages) ? chatUpdate.messages : [];
+                if (messages.length === 0) {
                     console.log('[INCOMING EVENT] No message object received');
                     return;
                 }
-                if (!mek.message) return;
-                mek.message = (Object.keys(mek.message)[0] === 'ephemeralMessage')
-                    ? mek.message.ephemeralMessage.message : mek.message;
-                if (mek.key && mek.key.remoteJid === 'status@broadcast') {
-                    await handleStatus(XeonBotInc, chatUpdate); return;
-                }
-                if (!XeonBotInc.public && !mek.key.fromMe && chatUpdate.type === 'notify') {
-                    if (!mek.key?.remoteJid?.endsWith('@g.us')) return;
-                }
-                if (mek.key.id.startsWith('BAE5') && mek.key.id.length === 16) return;
-                if (XeonBotInc?.msgRetryCounterCache) XeonBotInc.msgRetryCounterCache.clear();
-                try {
-                    await handleMessages(XeonBotInc, chatUpdate, true);
-                } catch (err) {
-                    console.error('Error in handleMessages:', err);
-                    if (mek.key?.remoteJid) {
-                        await XeonBotInc.sendMessage(mek.key.remoteJid, {
-                            text: 'An error occurred while processing your message.', ...channelInfo
-                        }).catch(console.error);
+                for (const mek of messages) {
+                    if (!mek?.message || !mek?.key) continue;
+                    if (Object.keys(mek.message)[0] === 'ephemeralMessage') {
+                        mek.message = mek.message.ephemeralMessage.message;
+                    }
+                    if (!shouldProcessUpsertMessage(mek, chatUpdate?.type)) continue;
+                    try {
+                        if (mek.key?.remoteJid === 'status@broadcast') {
+                            await handleStatus(XeonBotInc, { ...chatUpdate, messages: [mek] });
+                            continue;
+                        }
+                        if (!XeonBotInc.public && !mek.key?.fromMe && chatUpdate.type === 'notify' && !mek.key?.remoteJid?.endsWith('@g.us')) {
+                            continue;
+                        }
+                        if (mek.key?.id?.startsWith('BAE5') && mek.key.id.length === 16) continue;
+                        if (XeonBotInc?.msgRetryCounterCache) XeonBotInc.msgRetryCounterCache.clear();
+                        await handleMessages(XeonBotInc, { ...chatUpdate, messages: [mek] }, true);
+                    } catch (err) {
+                        console.error('Error in handleMessages:', err);
+                        if (mek.key?.remoteJid) {
+                            await XeonBotInc.sendMessage(mek.key.remoteJid, {
+                                text: 'An error occurred while processing your message.', ...channelInfo
+                            }).catch(console.error);
+                        }
                     }
                 }
             } catch (err) { console.error('Error in messages.upsert:', err); }

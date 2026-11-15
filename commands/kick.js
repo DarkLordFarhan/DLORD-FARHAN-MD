@@ -1,19 +1,16 @@
 const isAdmin = require('../lib/isAdmin');
 
 async function kickCommand(sock, chatId, senderId, mentionedJids, message) {
-    const isOwner = message.key.fromMe;
-    if (!isOwner) {
-        const { isSenderAdmin, isBotAdmin } = await isAdmin(sock, chatId, senderId);
+    const { isSenderAdmin, isBotAdmin } = await isAdmin(sock, chatId, senderId);
 
-        if (!isBotAdmin) {
-            await sock.sendMessage(chatId, { text: 'Please make the bot an admin first.' }, { quoted: message });
-            return;
-        }
+    if (!isSenderAdmin) {
+        await sock.sendMessage(chatId, { text: 'Only group admins can use the kick command.' }, { quoted: message });
+        return;
+    }
 
-        if (!isSenderAdmin) {
-            await sock.sendMessage(chatId, { text: 'Only group admins can use the kick command.' }, { quoted: message });
-            return;
-        }
+    if (!isBotAdmin) {
+        await sock.sendMessage(chatId, { text: 'WhatsApp requires the bot account to be a group admin to remove members.' }, { quoted: message });
+        return;
     }
 
     let usersToKick = [];
