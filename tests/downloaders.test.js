@@ -51,11 +51,14 @@ test('yt-dlp arguments avoid playlists by default and cap Instagram carousel ite
     assert.equal(videoFlags.print, 'after_move:filepath');
     assert.equal(videoFlags.maxFilesize, '64M');
     assert.equal(videoFlags.jsRuntimes, 'node');
+    assert.match(videoFlags.format, /acodec!=none.*vcodec!=none/);
+    assert.equal(videoFlags.mergeOutputFormat, undefined, 'single-file formats should not need ffmpeg merging');
     assert.match(videoFlags.output, /media-job/);
 
     const audioFlags = mediaDownloader.buildYtDlpFlags('/tmp/audio-job', { kind: 'audio' });
-    assert.equal(audioFlags.extractAudio, true);
-    assert.equal(audioFlags.audioFormat, 'mp3');
+    assert.match(audioFlags.format, /bestaudio\[ext=m4a\]/);
+    assert.equal(audioFlags.extractAudio, undefined, 'audio should not require ffmpeg conversion');
+    assert.equal(audioFlags.audioFormat, undefined);
 
     const carouselFlags = mediaDownloader.buildYtDlpFlags('/tmp/instagram-job', {
         kind: 'video', playlist: true, maxFiles: 99
@@ -99,6 +102,46 @@ test('media download consumes the printed file path and returns its validated bu
     } finally {
         Module._load = originalLoad;
     }
+});
+
+test('audio downloads preserve the source extension and use the matching MIME type without ffmpeg', async () => {
+    const originalLoad = Module._load;
+    let audioFlags;
+    Module._load = function (request, parent, isMain) {
+        if (request === 'youtube-dl-exec') {
+            return {
+                exec: async (_url, flags) => {
+                    audioFlags = flags;
+                    const outputPath = flags.output.replace('%(id)s.%(ext)s', 'test-audio.m4a');
+                    await fs.writeFile(outputPath, Buffer.from('test-audio'));
+                    return { stdout: `${outputPath}\n` };
+                }
+            };
+        }
+        return originalLoad.call(this, request, parent, isMain);
+    };
+
+    try {
+        const files = await mediaDownloader.downloadMedia('https://youtu.be/abcdefghijk', {
+            platform: 'youtube',
+            kind: 'audio'
+        });
+        assert.equal(audioFlags.extractAudio, undefined);
+        assert.equal(files[0].extension, 'm4a');
+        assert.equal(files[0].mimetype, 'audio/mp4');
+        assert.equal(files[0].fileName, 'test-audio.m4a');
+    } finally {
+        Module._load = originalLoad;
+    }
+});
+
+test('downloader errors explain missing tools, login walls, rate limits, and format failures', () => {
+    assert.match(mediaDownloader.formatDownloaderError({ stderr: '/usr/bin/env: python3: No such file or directory' }), /missing Python 3/i);
+    assert.match(mediaDownloader.formatDownloaderError({ stderr: 'ERROR: ffmpeg not found' }), /missing ffmpeg/i);
+    assert.match(mediaDownloader.formatDownloaderError({ stderr: 'Sign in to confirm you’re not a bot' }), /account session/i);
+    assert.match(mediaDownloader.formatDownloaderError({ stderr: 'HTTP Error 429: Too Many Requests' }), /rate-limiting/i);
+    assert.match(mediaDownloader.formatDownloaderError({ stderr: 'ERROR: Requested format is not available' }), /No compatible audio\/video format/i);
+    assert.match(mediaDownloader.formatDownloaderError({ stderr: 'ERROR: unknown extractor failure for https://example.com/secret?token=abc' }), /\[media link\]/);
 });
 
 test('`.vv` normalizes the bot JID and delivers view-once media to its inbox', async () => {
