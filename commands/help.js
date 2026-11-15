@@ -1,6 +1,74 @@
 const settings = require('../settings');
-const fs = require('fs');
-const path = require('path');
+
+const MENU_SECTION_TITLES = new Set([
+    '🌐 GENERAL', '👮 ADMIN', '👑 OWNER', '🎨 IMAGE & STICKER', '✨ TEXT EFFECTS',
+    '🖼️ PIES', '🎮 GAMES', '🤖 AI', '🎯 FUN', '📥 DOWNLOADS', '💻 GITHUB'
+]);
+
+function formatUptime(seconds) {
+    const total = Math.max(0, Math.floor(seconds));
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const parts = [];
+    if (days) parts.push(`${days}d`);
+    if (hours) parts.push(`${hours}h`);
+    if (minutes || parts.length === 0) parts.push(`${minutes}m`);
+    return parts.join(' ');
+}
+
+function createMenuText(commandSource) {
+    const sections = [];
+    let currentSection = null;
+
+    for (const line of commandSource.split(/\r?\n/)) {
+        const heading = line.match(/^\*([^*]+)\*$/);
+        if (heading && MENU_SECTION_TITLES.has(heading[1])) {
+            currentSection = { title: heading[1], commands: [], notes: [] };
+            sections.push(currentSection);
+            continue;
+        }
+        if (!currentSection || !line.trim()) continue;
+
+        const bullet = line.match(/^•\s+(.+)$/);
+        const content = bullet ? bullet[1].trim() : line.trim();
+        if (content.startsWith('.')) {
+            for (const alias of content.split(/\s+\/\s+/)) {
+                const command = alias.trim().match(/^\S+/)?.[0];
+                if (command?.startsWith('.')) currentSection.commands.push(command);
+            }
+        } else if (currentSection.title === '🤖 AI') {
+            currentSection.notes.push(content);
+        }
+    }
+
+    const commandCount = sections.reduce((total, section) => total + section.commands.length, 0);
+    const nairobiTime = new Intl.DateTimeFormat('en-KE', {
+        timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short'
+    }).format(new Date());
+    const intro = [
+        '╔════════◇◆◇═══════╗',
+        `├ *${settings.botName || 'LORD FARHAN BOT'}*`,
+        `├▢👑 Owner: *${settings.botOwner || 'Farhan II'}*`,
+        `├▢🕐 Time: *${nairobiTime} EAT*`,
+        `├▢⏱️ Uptime: *${formatUptime(process.uptime())}*`,
+        '├▢📶 State: *🟢 ONLINE*',
+        `├▢🔖 Version: *v${settings.version || '3.0.0'}*`,
+        `├▢📚 Commands: *${commandCount}*`,
+        '├▢☎️ Owner WhatsApp: *+254795463911*',
+        '╚════════◇◆◇═══════╝'
+    ].join('\n');
+    const categoryText = sections.map(section => [
+        '╔═══════════════╗',
+        `  *${section.title}*`,
+        '╠───────────────╣',
+        ...section.commands.map(command => `║ 🔹 *${command}*`),
+        ...section.notes.map(note => `║ ℹ️ ${note}`),
+        '╚═══════════════╝'
+    ].join('\n')).join('\n\n');
+
+    return `${intro}\n\n${categoryText}`;
+}
 
 async function helpCommand(sock, chatId, message) {
     const nairobiTime = new Intl.DateTimeFormat('en-KE', {
@@ -175,38 +243,19 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 
 ⚡ *LORD FARHAN BOT — POWERED BY FARHAN II* ⚡
 `;
+    const menuMessage = createMenuText(helpMessage);
 
     try {
-        const imagePath = path.join(__dirname, '../assets/bot_image.jpg');
-        if (fs.existsSync(imagePath)) {
-            const imageBuffer = fs.readFileSync(imagePath);
-            await sock.sendMessage(chatId, {
-                image: imageBuffer,
-                caption: 'Command menu',
-                contextInfo: {
-                    forwardingScore: 1,
-                    isForwarded: true
-                }
-            }, { quoted: message });
-            await sock.sendMessage(chatId, {
-                text: helpMessage,
-                contextInfo: {
-                    forwardingScore: 1,
-                    isForwarded: true
-                }
-            }, { quoted: message });
-        } else {
-            await sock.sendMessage(chatId, {
-                text: helpMessage,
-                contextInfo: {
-                    forwardingScore: 1,
-                    isForwarded: true
-                }
-            }, { quoted: message });
-        }
+        await sock.sendMessage(chatId, {
+            text: menuMessage,
+            contextInfo: {
+                forwardingScore: 1,
+                isForwarded: true
+            }
+        }, { quoted: message });
     } catch (error) {
-        console.error('Error in help command:', error);
-        await sock.sendMessage(chatId, { text: helpMessage });
+        console.error('Error sending the menu with forwarding metadata; retrying as plain text:', error);
+        await sock.sendMessage(chatId, { text: menuMessage }, { quoted: message });
     }
 }
 

@@ -89,7 +89,7 @@ test('news responds safely when the feed is unavailable', async () => {
 });
 
 
-test('help sends the complete Ephoto, GIF, and AI menu in a separate text message', async () => {
+test('help sends one scrollable and copyable bordered text menu with owner details', async () => {
     const helpCommand = require('../commands/help');
     const sent = [];
     await helpCommand(
@@ -98,22 +98,64 @@ test('help sends the complete Ephoto, GIF, and AI menu in a separate text messag
         { key: { id: 'menu-test' } }
     );
 
-    const menuText = sent.map(([, payload]) => payload.text || '').find(text => text.includes('.metallic'));
-    assert.ok(menuText, 'expected full menu text to be sent separately');
-    assert.ok(menuText.length > 1024, 'menu should remain complete as a text message');
-    const widestLine = Math.max(...menuText.split('\n').map(line => Array.from(line).length));
-    assert.ok(widestLine <= 45, `menu should stay narrow; widest line was ${widestLine} characters`);
+    assert.equal(sent.length, 1, 'the complete menu should be one text message');
+    const payload = sent[0][1];
+    assert.equal(typeof payload.text, 'string', 'expected a normal copyable text message');
+    assert.equal(payload.image, undefined, 'the menu should not attach an image');
+    const menuText = payload.text;
+    assert.ok(menuText.includes('Owner:'));
+    assert.ok(menuText.includes('Time:'));
+    assert.ok(menuText.includes('State: *🟢 ONLINE*'));
+    assert.ok(menuText.includes('Commands: *136*'));
+    assert.ok(menuText.includes('Owner WhatsApp: *+254795463911*'));
+    assert.ok(menuText.includes('╔════════◇◆◇═══════╗'));
+    assert.ok(menuText.includes('╠───────────────╣'));
+    assert.ok(menuText.includes('╚═══════════════╝'));
+
+    const commandLines = menuText.split('\n').filter(line => line.includes('║ 🔹 *'));
+    assert.equal(commandLines.length, 136, 'every command and alias should appear in the menu');
+    assert.ok(commandLines.every(line => line.startsWith('║ 🔹 *')), 'each command should use the requested 🔹 prefix');
     for (const command of [
         '.metallic', '.ice', '.snow', '.impressive', '.matrix', '.light', '.neon',
         '.devil', '.purple', '.thunder', '.leaves', '.1917', '.arena', '.hacker',
-        '.sand', '.blackpink', '.glitch', '.fire', '.gif <search term>',
-        '.gpt <question>', '.gemini <question>', '.imagine <prompt>',
-        '.dalle <prompt>', '.flux <prompt>', '.sora <prompt>',
-        '.vv (reply to view-once photo/video)', '.autostatus emoji <emojis>'
+        '.sand', '.blackpink', '.glitch', '.fire', '.gif', '.gpt', '.gemini',
+        '.imagine', '.dalle', '.flux', '.sora', '.vv', '.autostatus', '.git', '.github'
     ]) {
-        assert.ok(menuText.includes(command), `expected menu to include ${command}`);
+        assert.ok(commandLines.some(line => line.includes(`*${command}*`)), `expected menu to include ${command}`);
+    }
+    assert.ok(menuText.includes('AI Horde'), 'expected the AI fallback disclosure');
+    assert.ok(menuText.includes('LAION'), 'expected the anonymous image-sharing disclosure');
+});
+
+test('help retries the menu as plain text without forwarding metadata if the first send fails', async () => {
+    const helpCommand = require('../commands/help');
+    const sent = [];
+    let rejectFirstSend = true;
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    try {
+        await helpCommand(
+            {
+                sendMessage: async (...args) => {
+                    sent.push(args);
+                    if (rejectFirstSend) {
+                        rejectFirstSend = false;
+                        throw new Error('simulated send failure');
+                    }
+                }
+            },
+            'menu-chat',
+            { key: { id: 'menu-fallback-test' } }
+        );
+    } finally {
+        console.error = originalConsoleError;
     }
 
-    const imageMessage = sent.find(([, payload]) => payload.image);
-    if (imageMessage) assert.ok(imageMessage[1].caption.length < 1024, 'image caption should stay below the WhatsApp caption limit');
+    assert.equal(sent.length, 2, 'expected a retry after the initial send failure');
+    assert.equal(typeof sent[0][1].text, 'string');
+    assert.equal(typeof sent[1][1].text, 'string');
+    assert.equal(sent[0][1].text, sent[1][1].text);
+    assert.equal(sent[1][1].image, undefined);
+    assert.equal(sent[1][1].contextInfo, undefined);
+    assert.ok(sent[1][1].text.includes('║ 🔹 *.metallic*'));
 });
