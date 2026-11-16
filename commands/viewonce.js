@@ -1,68 +1,77 @@
 const { downloadContentFromMessage, jidNormalizedUser } = require('@whiskeysockets/baileys');
 
-function normalizeBotInboxJid(jid) {
-    return jidNormalizedUser(String(jid || ''));
-}
-
-function unwrap(message) {
+function unwrapQuotedMedia(message) {
     let current = message;
-    let viewOnce = false;
+    let foundViewOnce = false;
+    let depth = 0;
 
-    while (current) {
-        if (current.viewOnceMessage?.message) {
-            viewOnce = true;
-            current = current.viewOnceMessage.message;
-        } else if (current.viewOnceMessageV2?.message) {
-            viewOnce = true;
-            current = current.viewOnceMessageV2.message;
-        } else if (current.viewOnceMessageV2Extension?.message) {
-            viewOnce = true;
-            current = current.viewOnceMessageV2Extension.message;
-        } else if (current.ephemeralMessage?.message) {
-            current = current.ephemeralMessage.message;
-        } else if (current.documentWithCaptionMessage?.message) {
-            current = current.documentWithCaptionMessage.message;
-        } else {
-            break;
+    while (current && depth++ < 15) {
+        if (current.imageMessage || current.videoMessage) {
+            const media = current.imageMessage || current.videoMessage;
+            return {
+                media,
+                type: current.imageMessage ? 'image' : 'video',
+                viewOnce: foundViewOnce || media.viewOnce === true
+            };
         }
+
+        const wrappers = [
+            'viewOnceMessage',
+            'viewOnceMessageV2',
+            'viewOnceMessageV2Extension',
+            'ephemeralMessage',
+            'documentWithCaptionMessage'
+        ];
+
+        let next = null;
+
+        for (const wrapper of wrappers) {
+            if (current[wrapper]?.message) {
+                if (wrapper.startsWith('viewOnce')) foundViewOnce = true;
+                next = current[wrapper].message;
+                break;
+            }
+        }
+
+        if (!next) break;
+        current = next;
     }
 
-    return { current, viewOnce };
+    return null;
 }
 
 async function viewonceCommand(sock, chatId, message) {
     try {
-        const context =
-            message.message?.extendedTextMessage?.contextInfo ||
-            message.message?.imageMessage?.contextInfo ||
-            message.message?.videoMessage?.contextInfo;
+        const content = message?.message || {};
 
-        if (!context?.quotedMessage) {
-            await sock.sendMessage(chatId, {
-                text: '❌ Reply directly to a view-once photo or video with .vv'
-            }, { quoted: message });
-            return;
+        let contextInfo = null;
+
+        for (const value of Object.values(content)) {
+            if (value?.contextInfo?.quotedMessage) {
+                contextInfo = value.contextInfo;
+                break;
+            }
         }
 
-        const { current, viewOnce } = unwrap(context.quotedMessage);
-
-        const image = current?.imageMessage;
-        const video = current?.videoMessage;
-        const media = image || video;
-
-        if (!media || !(viewOnce || media.viewOnce)) {
-            await sock.sendMessage(chatId, {
-                text: '❌ No view-once photo/video detected. Reply to the original media.'
+        if (!contextInfo?.quotedMessage) {
+            return await sock.sendMessage(chatId, {
+                text: '❌ Reply directly to a view-once photo or video with .vv'
             }, { quoted: message });
-            return;
+        }
+
+        const result = unwrapQuotedMedia(contextInfo.quotedMessage);
+
+        if (!result || !result.viewOnce) {
+            return await sock.sendMessage(chatId, {
+                text: '❌ No view-once photo or video detected. Reply to the original view-once media.'
+            }, { quoted: message });
         }
 
         await sock.sendMessage(chatId, {
-            text: '⏳ Processing view-once media...'
+            text: '⏳ Processing your view-once media...'
         }, { quoted: message });
 
-        const type = image ? 'image' : 'video';
-        const stream = await downloadContentFromMessage(media, type);
+        const stream = await downloadContentFromMessage(result.media, result.type);
         const chunks = [];
 
         for await (const chunk of stream) {
@@ -70,38 +79,44 @@ async function viewonceCommand(sock, chatId, message) {
         }
 
         const buffer = Buffer.concat(chunks);
-        if (!buffer.length) throw new Error('Downloaded media is empty');
 
-        const inbox = normalizeBotInboxJid(sock.user?.id);
+        if (!buffer.length) {
+            throw new Error('Downloaded media is empty.');
+        }
 
-        if (!inbox.endsWith('@s.whatsapp.net')) throw new Error('Bot WhatsApp account unavailable');
+        const inbox = jidNormalizedUser(String(sock.user?.id || ''));
 
-        await sock.sendMessage(inbox, image
-            ? {
-                image: buffer,
-                caption: '👑 LORD FARHAN | Recovered view-once photo'
-            }
+        if (!inbox || !inbox.endsWith('@s.whatsapp.net')) {
+            throw new Error('Could not identify the bot WhatsApp inbox.');
+        }
+
+        const caption = result.type === 'image'
+            ? '👑 LORD FARHAN | VIEW-ONCE PHOTO'
+            : '👑 LORD FARHAN | VIEW-ONCE VIDEO';
+
+        const payload = result.type === 'image'
+            ? { image: buffer, caption }
             : {
                 video: buffer,
-                mimetype: media.mimetype || 'video/mp4',
-                caption: '👑 LORD FARHAN | Recovered view-once video'
-            }
-        );
+                mimetype: result.media.mimetype || 'video/mp4',
+                caption
+            };
+
+        await sock.sendMessage(inbox, payload);
 
         await sock.sendMessage(chatId, {
-            text: '✅ Media processing completed. Check your bot inbox.'
+            text: '✅ VV SUCCESSFUL!\n\nYour media has been delivered to the bot WhatsApp inbox. 👑'
         }, { quoted: message });
 
-        console.log('[VV] Successfully delivered media to bot inbox.');
+        console.log(`[VV] ${result.type} successfully delivered to bot inbox.`);
 
     } catch (error) {
         console.error('[VV ERROR]', error?.stack || error);
 
         await sock.sendMessage(chatId, {
-            text: '❌ VV failed: ' + String(error.message || error).slice(0, 250)
+            text: '❌ VV ERROR: ' + String(error.message || error).slice(0, 300)
         }, { quoted: message }).catch(() => {});
     }
 }
 
 module.exports = viewonceCommand;
-module.exports.normalizeBotInboxJid = normalizeBotInboxJid;
