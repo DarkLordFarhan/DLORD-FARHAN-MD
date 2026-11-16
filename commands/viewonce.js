@@ -3,51 +3,83 @@ const {
     jidNormalizedUser
 } = require('@whiskeysockets/baileys');
 
-function findQuotedContext(content, depth = 0) {
-    if (!content || typeof content !== 'object' || depth > 20) return null;
-
-    if (content.contextInfo?.quotedMessage) {
-        return content.contextInfo;
-    }
-
-    for (const value of Object.values(content)) {
-        if (!value || typeof value !== 'object') continue;
-        const found = findQuotedContext(value, depth + 1);
-        if (found) return found;
-    }
-
-    return null;
-}
-
-function unwrapMessage(message) {
-    let current = message;
+function unwrapViewOnce(message) {
+    let content = message;
     let depth = 0;
 
-    while (current && typeof current === 'object' && depth++ < 20) {
+    while (content && depth++ < 15) {
         const wrapper =
-            current.viewOnceMessage ||
-            current.viewOnceMessageV2 ||
-            current.viewOnceMessageV2Extension ||
-            current.ephemeralMessage ||
-            current.documentWithCaptionMessage;
+            content.viewOnceMessage ||
+            content.viewOnceMessageV2 ||
+            content.viewOnceMessageV2Extension ||
+            content.ephemeralMessage ||
+            content.documentWithCaptionMessage;
 
-        if (!wrapper?.message) break;
-        current = wrapper.message;
+        if (!wrapper || !wrapper.message) break;
+        content = wrapper.message;
     }
 
-    return current;
+    return content;
 }
 
-function extractMedia(quotedMessage) {
-    const content = unwrapMessage(quotedMessage);
-    if (!content) return null;
+function getQuotedMessage(message) {
+    const content = message?.message;
 
-    if (content.imageMessage) {
-        return { type: 'image', media: content.imageMessage };
+    const direct =
+        content?.extendedTextMessage?.contextInfo?.quotedMessage ||
+        content?.imageMessage?.contextInfo?.quotedMessage ||
+        content?.videoMessage?.contextInfo?.quotedMessage;
+
+    if (direct) return direct;
+
+    function search(object, depth = 0) {
+        if (!object || typeof object !== 'object' || depth > 15) {
+            return null;
+        }
+
+        if (object.contextInfo?.quotedMessage) {
+            return object.contextInfo.quotedMessage;
+        }
+
+        for (const value of Object.values(object)) {
+            if (value && typeof value === 'object') {
+                const found = search(value, depth + 1);
+                if (found) return found;
+            }
+        }
+
+        return null;
     }
 
-    if (content.videoMessage) {
-        return { type: 'video', media: content.videoMessage };
+    return search(content);
+}
+
+function extractMedia(message, depth = 0) {
+    if (!message || typeof message !== 'object' || depth > 15) {
+        return null;
+    }
+
+    const content = unwrapViewOnce(message);
+
+    if (content?.imageMessage) {
+        return {
+            type: 'image',
+            media: content.imageMessage
+        };
+    }
+
+    if (content?.videoMessage) {
+        return {
+            type: 'video',
+            media: content.videoMessage
+        };
+    }
+
+    for (const value of Object.values(content || {})) {
+        if (value && typeof value === 'object') {
+            const found = extractMedia(value, depth + 1);
+            if (found) return found;
+        }
     }
 
     return null;
@@ -64,83 +96,58 @@ async function downloadMedia(media, type) {
     return Buffer.concat(chunks);
 }
 
-async function viewonceCommand(sock, chatId, message) {
-    const reply = async text => {
-        try {
-            await sock.sendMessage(
-                chatId,
-                { text },
-                { quoted: message }
-            );
-        } catch (error) {
-            console.error('[VV REPLY ERROR]', error);
-        }
-    };
-
+async function viewOnceCommand(sock, chatId, message) {
     try {
-        console.log('[VV] Command received:', chatId);
+        console.log('[VV] August recovery handler started');
 
-        const context = findQuotedContext(message?.message);
+        const quotedMessage = getQuotedMessage(message);
 
-        if (!context?.quotedMessage) {
-            await reply('⚠️ Reply directly to a view-once photo or video with .vv.');
+        if (!quotedMessage) {
+            console.log('[VV] No quoted message found');
             return;
         }
 
-        const found = extractMedia(context.quotedMessage);
+        const found = extractMedia(quotedMessage);
 
         if (!found) {
-            console.log(
-                '[VV] Quoted message structure:',
-                Object.keys(context.quotedMessage)
-            );
-            await reply('❌ No photo or video was found in the quoted message. Reply to the original media and try again.');
+            console.log('[VV] Quoted message has no image/video');
             return;
         }
 
-        const botId = sock.user?.id || sock.user?.jid;
+        const botId = sock.user?.id;
 
         if (!botId) {
-            await reply('❌ Bot connection is not ready. Try again after reconnecting.');
-            return;
+            throw new Error('Bot WhatsApp ID is unavailable');
         }
 
-        const inbox = jidNormalizedUser(botId);
+        const ownerInbox = jidNormalizedUser(botId);
 
-        console.log('[VV] Media type:', found.type);
-        console.log('[VV] Downloading original media...');
+        console.log('[VV] Downloading:', found.type);
 
         const buffer = await downloadMedia(found.media, found.type);
 
-        if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
-            throw new Error('WhatsApp returned an empty media file.');
+        if (!buffer || buffer.length === 0) {
+            throw new Error('Downloaded media is empty');
         }
 
         if (found.type === 'image') {
-            await sock.sendMessage(inbox, {
+            await sock.sendMessage(ownerInbox, {
                 image: buffer,
-                caption: '👑 LORD FARHAN | RECOVERED VIEW-ONCE PHOTO'
+                caption: '👑 LORD FARHAN | VIEW ONCE RECOVERED'
             });
         } else {
-            await sock.sendMessage(inbox, {
+            await sock.sendMessage(ownerInbox, {
                 video: buffer,
                 mimetype: found.media.mimetype || 'video/mp4',
-                caption: '👑 LORD FARHAN | RECOVERED VIEW-ONCE VIDEO'
+                caption: '👑 LORD FARHAN | VIEW ONCE RECOVERED'
             });
         }
 
-        console.log('[VV] SUCCESS - Media delivered to bot inbox.');
-
-        await reply('✅ VV SUCCESSFUL! Recovered media sent to the bot inbox. 👑');
+        console.log('[VV] SUCCESS: Media delivered to bot inbox');
 
     } catch (error) {
         console.error('[VV ERROR]', error?.stack || error);
-
-        await reply(
-            '❌ VV ERROR: ' +
-            String(error?.message || error).slice(0, 250)
-        );
     }
 }
 
-module.exports = viewonceCommand;
+module.exports = viewOnceCommand;
