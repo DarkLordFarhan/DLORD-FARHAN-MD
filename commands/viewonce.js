@@ -3,8 +3,10 @@ const {
     jidNormalizedUser
 } = require('@whiskeysockets/baileys');
 
+const store = require('../lib/lightweight_store');
+
 function findQuotedContext(content, depth = 0) {
-    if (!content || typeof content !== 'object' || depth > 12) return null;
+    if (!content || typeof content !== 'object' || depth > 15) return null;
 
     for (const value of Object.values(content)) {
         if (!value || typeof value !== 'object') continue;
@@ -20,42 +22,43 @@ function findQuotedContext(content, depth = 0) {
     return null;
 }
 
-function inspectMedia(content, depth = 0, viewOnce = false) {
+function extractOriginalMedia(content, depth = 0, viewOnce = false) {
     if (!content || typeof content !== 'object' || depth > 15) return null;
 
-    if (content.viewOnceMessage ||
-        content.viewOnceMessageV2 ||
-        content.viewOnceMessageV2Extension) {
-        viewOnce = true;
-    }
-
-    for (const key of [
-        'imageMessage',
-        'videoMessage'
-    ]) {
-        if (content[key]) {
-            return {
-                type: key === 'imageMessage' ? 'image' : 'video',
-                viewOnce: viewOnce || content[key].viewOnce === true
-            };
-        }
-    }
-
-    for (const key of [
+    const wrappers = [
         'viewOnceMessage',
         'viewOnceMessageV2',
         'viewOnceMessageV2Extension',
         'ephemeralMessage',
         'documentWithCaptionMessage'
-    ]) {
-        if (content[key]?.message) {
-            const result = inspectMedia(
-                content[key].message,
+    ];
+
+    for (const wrapper of wrappers) {
+        if (content[wrapper]?.message) {
+            const isVO = viewOnce || wrapper.startsWith('viewOnce');
+            const result = extractOriginalMedia(
+                content[wrapper].message,
                 depth + 1,
-                viewOnce
+                isVO
             );
             if (result) return result;
         }
+    }
+
+    if (content.imageMessage) {
+        return {
+            type: 'image',
+            media: content.imageMessage,
+            viewOnce: viewOnce || content.imageMessage.viewOnce === true
+        };
+    }
+
+    if (content.videoMessage) {
+        return {
+            type: 'video',
+            media: content.videoMessage,
+            viewOnce: viewOnce || content.videoMessage.viewOnce === true
+        };
     }
 
     return null;
@@ -63,82 +66,111 @@ function inspectMedia(content, depth = 0, viewOnce = false) {
 
 async function viewonceCommand(sock, chatId, message) {
     try {
-        const contextInfo = findQuotedContext(message?.message);
+        const context = findQuotedContext(message?.message);
 
-        if (!contextInfo?.quotedMessage || !contextInfo.stanzaId) {
+        if (!context?.stanzaId) {
             return await sock.sendMessage(chatId, {
-                text: '❌ Reply directly to a view-once photo or video with .vv'
+                text: '❌ Reply directly to the original view-once photo or video with .vv'
             }, { quoted: message });
         }
 
-        const mediaInfo = inspectMedia(contextInfo.quotedMessage);
+        console.log('[VV] Looking up original message:', context.stanzaId);
 
-        if (!mediaInfo || !mediaInfo.viewOnce) {
-            return await sock.sendMessage(chatId, {
-                text: '❌ The quoted message is not a supported view-once photo or video.'
-            }, { quoted: message });
+        // Retrieve the original incoming message saved by store.bind().
+        let original = await store.loadMessage(chatId, context.stanzaId);
+
+        // Fallback: search stored chats by the exact WhatsApp message ID.
+        if (!original) {
+            for (const messages of Object.values(store.messages || {})) {
+                if (!Array.isArray(messages)) continue;
+
+                original = messages.find(item =>
+                    item?.key?.id === context.stanzaId
+                );
+
+                if (original) break;
+            }
         }
+
+        if (!original?.message || !original?.key) {
+            throw new Error(
+                'Original message not found in bot store. The media was not retained.'
+            );
+        }
+
+        const found = extractOriginalMedia(original.message);
+
+        if (!found || !found.viewOnce) {
+            throw new Error(
+                'Stored original is not a recognized view-once photo or video.'
+            );
+        }
+
+        console.log('[VV] Original media found:', found.type);
+        console.log('[VV] Original key:', original.key.id);
 
         await sock.sendMessage(chatId, {
-            text: '⏳ Recovering view-once media...'
+            text: '⏳ Original media found. Recovering it now...'
         }, { quoted: message });
 
-        const quotedMessage = {
-            key: {
-                remoteJid: chatId,
-                id: contextInfo.stanzaId,
-                participant: contextInfo.participant,
-                fromMe: false
-            },
-            message: contextInfo.quotedMessage
+        // Keep the ORIGINAL WhatsApp message key and original media object.
+        const downloadableMessage = {
+            ...original,
+            message: found.type === 'image'
+                ? { imageMessage: found.media }
+                : { videoMessage: found.media }
         };
 
         const buffer = await downloadMediaMessage(
-            quotedMessage,
+            downloadableMessage,
             'buffer',
             {},
             {
                 logger: sock.logger,
-                reuploadRequest: async (msg) => {
+                reuploadRequest: async msg => {
                     if (typeof sock.updateMediaMessage !== 'function') {
-                        throw new Error('Baileys media re-upload is unavailable.');
+                        throw new Error('Media re-upload is unavailable.');
                     }
                     return await sock.updateMediaMessage(msg);
                 }
             }
         );
 
-        if (!buffer || !buffer.length) {
-            throw new Error('Baileys returned empty media.');
+        if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
+            throw new Error('Media download returned an empty file.');
         }
 
         const inbox = jidNormalizedUser(String(sock.user?.id || ''));
 
         if (!inbox || !inbox.endsWith('@s.whatsapp.net')) {
-            throw new Error('Could not identify the bot WhatsApp inbox.');
+            throw new Error('Bot WhatsApp inbox could not be identified.');
         }
 
-        const caption = mediaInfo.type === 'image'
-            ? '👑 LORD FARHAN | VIEW-ONCE PHOTO'
-            : '👑 LORD FARHAN | VIEW-ONCE VIDEO';
+        const caption = found.type === 'image'
+            ? '👑 LORD FARHAN | RECOVERED VIEW-ONCE PHOTO'
+            : '👑 LORD FARHAN | RECOVERED VIEW-ONCE VIDEO';
 
-        const payload = mediaInfo.type === 'image'
+        const payload = found.type === 'image'
             ? { image: buffer, caption }
-            : { video: buffer, mimetype: 'video/mp4', caption };
+            : {
+                video: buffer,
+                mimetype: found.media.mimetype || 'video/mp4',
+                caption
+            };
 
         await sock.sendMessage(inbox, payload);
 
         await sock.sendMessage(chatId, {
-            text: '✅ VV SUCCESSFUL!\n\nMedia delivered to the bot WhatsApp inbox. 👑'
+            text: '✅ VV SUCCESSFUL!\n\nOriginal media delivered to the bot inbox. 👑'
         }, { quoted: message });
 
-        console.log('[VV] Media recovered and delivered successfully.');
+        console.log('[VV] Original media recovered and delivered.');
 
     } catch (error) {
         console.error('[VV ERROR]', error?.stack || error);
 
         await sock.sendMessage(chatId, {
-            text: '❌ VV ERROR: ' + String(error.message || error).slice(0, 250)
+            text: '❌ VV ERROR: ' + String(error.message || error).slice(0, 300)
         }, { quoted: message }).catch(() => {});
     }
 }
