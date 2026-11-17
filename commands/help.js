@@ -106,7 +106,7 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 • .groupstats
 • .myactivity
 • .staff / .admins
-• .vv (reply to view-once photo/video)
+• .vv (reply to view-once photo/video/audio)
   Note: .vv is owner-only and handles only view-once media sent by the linked account
 • .trt <text> <lang>
 • .ss <link>

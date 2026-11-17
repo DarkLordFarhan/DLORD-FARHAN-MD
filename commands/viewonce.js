@@ -1,8 +1,21 @@
+const fs = require('node:fs');
+const fsPromises = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const { Transform } = require('node:stream');
+const { pipeline } = require('node:stream/promises');
+const { startLimitedOperation, withTimeout } = require('../lib/with-timeout');
 const {
     downloadContentFromMessage,
     jidNormalizedUser
 } = require('@whiskeysockets/baileys');
 const isLinkedOwner = require('../lib/isLinkedOwner');
+
+const MAX_VIEW_ONCE_MEDIA_BYTES = 100 * 1024 * 1024;
+const VIEW_ONCE_DOWNLOAD_TIMEOUT_MS = 60_000;
+const VIEW_ONCE_STREAM_START_TIMEOUT_MS = 10_000;
+const pendingViewOnceDownloads = new WeakMap();
+const pendingViewOnceStreamStarts = new WeakMap();
 
 function normalizeBotInboxJid(jid) {
     return jidNormalizedUser(String(jid || ''));
@@ -42,7 +55,8 @@ function getQuotedContext(message) {
     const direct =
         content?.extendedTextMessage?.contextInfo ||
         content?.imageMessage?.contextInfo ||
-        content?.videoMessage?.contextInfo;
+        content?.videoMessage?.contextInfo ||
+        content?.audioMessage?.contextInfo;
     if (direct?.quotedMessage) return direct;
 
     function search(object, depth = 0) {
@@ -69,6 +83,9 @@ function extractMedia(message, depth = 0) {
     if (content?.videoMessage && (viewOnce || content.videoMessage.viewOnce)) {
         return { type: 'video', media: content.videoMessage };
     }
+    if (content?.audioMessage && (viewOnce || content.audioMessage.viewOnce)) {
+        return { type: 'audio', media: content.audioMessage };
+    }
 
     for (const value of Object.values(content || {})) {
         if (value && typeof value === 'object') {
@@ -79,14 +96,76 @@ function extractMedia(message, depth = 0) {
     return null;
 }
 
-async function downloadMedia(media, type) {
-    const stream = await downloadContentFromMessage(media, type);
-    const chunks = [];
-    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
-    return Buffer.concat(chunks);
+async function downloadMedia(sock, media, type, options = {}) {
+    return startLimitedOperation(
+        pendingViewOnceDownloads,
+        sock,
+        1,
+        async () => {
+            const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'lordfarhan-vv-'));
+            const extension = type === 'image' ? 'jpg' : type === 'video' ? 'mp4' : 'm4a';
+            const filePath = path.join(tempDir, `recovered.${extension}`);
+            let downloadedBytes = 0;
+            const sizeLimit = options.maxMediaBytes ?? MAX_VIEW_ONCE_MEDIA_BYTES;
+            const sizeGuard = new Transform({
+                transform(chunk, encoding, callback) {
+                    downloadedBytes += chunk.length;
+                    if (downloadedBytes > sizeLimit) {
+                        callback(new Error(`View-once media exceeds the ${Math.floor(sizeLimit / (1024 * 1024))} MB safety limit.`));
+                        return;
+                    }
+                    callback(null, chunk);
+                }
+            });
+            const controller = new AbortController();
+            const timeout = setTimeout(
+                () => controller.abort(),
+                options.downloadTimeoutMs ?? VIEW_ONCE_DOWNLOAD_TIMEOUT_MS
+            );
+
+            try {
+                const streamTask = startLimitedOperation(
+                    pendingViewOnceStreamStarts,
+                    sock,
+                    1,
+                    () => downloadContentFromMessage(media, type),
+                    'A previous view-once stream is still starting.'
+                );
+                let stream;
+                try {
+                    stream = await withTimeout(
+                        streamTask,
+                        options.streamStartTimeoutMs ?? VIEW_ONCE_STREAM_START_TIMEOUT_MS,
+                        'WhatsApp did not start the view-once media download in time.'
+                    );
+                } catch (error) {
+                    streamTask.then(lateStream => lateStream?.destroy?.()).catch(() => {});
+                    throw error;
+                }
+                await pipeline(
+                    stream,
+                    sizeGuard,
+                    fs.createWriteStream(filePath, { flags: 'wx' }),
+                    { signal: controller.signal }
+                );
+                if (downloadedBytes === 0) throw new Error('Downloaded media is empty.');
+                return { filePath, tempDir, downloadedBytes };
+            } catch (error) {
+                await fsPromises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+                if (controller.signal.aborted) {
+                    throw new Error('View-once media download timed out after 60 seconds.');
+                }
+                throw error;
+            } finally {
+                clearTimeout(timeout);
+            }
+        },
+        'A view-once media download is already in progress.'
+    );
 }
 
-async function viewOnceCommand(sock, chatId, message) {
+async function viewOnceCommand(sock, chatId, message, options = {}) {
+    let tempDir;
     try {
         const senderId = message.key?.participant ||
             (message.key?.fromMe ? sock.user?.id : message.key?.remoteJid);
@@ -102,7 +181,7 @@ async function viewOnceCommand(sock, chatId, message) {
         const quotedMessage = context?.quotedMessage;
         if (!quotedMessage) {
             await sock.sendMessage(chatId, {
-                text: '❌ Reply directly to a view-once photo or video with .vv'
+            text: '❌ Reply directly to a view-once photo, video, or audio message with .vv'
             }, { quoted: message });
             return;
         }
@@ -121,7 +200,7 @@ async function viewOnceCommand(sock, chatId, message) {
         const found = extractMedia(quotedMessage);
         if (!found) {
             await sock.sendMessage(chatId, {
-                text: '❌ No view-once photo/video detected. Reply to the original media.'
+                text: '❌ No view-once photo, video, or audio detected. Reply to the original media.'
             }, { quoted: message });
             return;
         }
@@ -130,21 +209,29 @@ async function viewOnceCommand(sock, chatId, message) {
         if (!botId) throw new Error('Bot WhatsApp ID is unavailable');
         const ownerInbox = jidNormalizedUser(botId);
         console.log('[VV] Downloading:', found.type);
-        const buffer = await downloadMedia(found.media, found.type);
-        if (!buffer || buffer.length === 0) throw new Error('Downloaded media is empty');
+        const downloaded = await downloadMedia(sock, found.media, found.type, options);
+        tempDir = downloaded.tempDir;
+        const originalCaption = found.media.caption;
 
         if (found.type === 'image') {
             await sock.sendMessage(ownerInbox, {
-                image: buffer,
-                caption: '👑 LORD FARHAN | Recovered view-once photo'
+                image: { url: downloaded.filePath },
+                caption: originalCaption || '👑 LORD FARHAN | Recovered view-once photo'
+            });
+        } else if (found.type === 'video') {
+            await sock.sendMessage(ownerInbox, {
+                video: { url: downloaded.filePath },
+                mimetype: found.media.mimetype || 'video/mp4',
+                caption: originalCaption || '👑 LORD FARHAN | Recovered view-once video'
             });
         } else {
             await sock.sendMessage(ownerInbox, {
-                video: buffer,
-                mimetype: found.media.mimetype || 'video/mp4',
-                caption: '👑 LORD FARHAN | Recovered view-once video'
+                audio: { url: downloaded.filePath },
+                mimetype: found.media.mimetype || 'audio/mp4',
+                ptt: false
             });
         }
+        await sock.sendMessage(chatId, { react: { text: '✅', key: message.key } });
         await sock.sendMessage(chatId, {
             text: '✅ Media processing completed. Check your bot inbox.'
         }, { quoted: message });
@@ -154,6 +241,8 @@ async function viewOnceCommand(sock, chatId, message) {
         await sock.sendMessage(chatId, {
             text: '❌ VV failed: ' + String(error.message || error).slice(0, 250)
         }, { quoted: message }).catch(() => {});
+    } finally {
+        if (tempDir) await fsPromises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
     }
 }
 
