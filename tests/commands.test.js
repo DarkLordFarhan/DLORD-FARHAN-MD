@@ -150,7 +150,7 @@ test('quoted info only summarizes the explicitly quoted message and requires a q
 });
 
 
-test('help sends the branded menu image with every canonical command in a valid caption', async () => {
+test('help sends the complete branded menu as bordered scrollable text', async () => {
     const helpCommand = require('../commands/help');
     const sent = [];
     await helpCommand(
@@ -159,18 +159,23 @@ test('help sends the branded menu image with every canonical command in a valid 
         { key: { id: 'menu-test' } }
     );
 
-    assert.equal(sent.length, 1, 'the complete image menu should be one message');
+    assert.equal(sent.length, 1, 'the complete text menu should be one message');
     const payload = sent[0][1];
-    assert.ok(Buffer.isBuffer(payload.image), 'expected the existing branded menu image as a Buffer');
-    assert.equal(typeof payload.caption, 'string', 'expected the command list in the image caption');
-    assert.ok(payload.caption.length <= 1024, 'the media caption must stay within WhatsApp’s documented limit');
-    assert.equal(payload.text, undefined, 'the menu should be sent as an image-caption message');
-    const menuText = payload.caption;
-    assert.ok(menuText.startsWith('DLORD FARHAN | .'));
+    assert.equal(typeof payload.text, 'string', 'the menu should be sent as a text message');
+    assert.equal(payload.image, undefined, 'the menu should no longer include an image');
+    assert.equal(payload.caption, undefined, 'the menu should no longer use a media caption');
+    const menuText = payload.text;
+    assert.ok(menuText.startsWith('╔════════◇◆◇═══════╗'));
+    assert.ok(menuText.includes('╔═══════════════╗'));
+    assert.ok(menuText.includes('║ 🔹 *.metallic*'));
+    assert.ok(menuText.includes('║ 🔹 *.github*'));
+    assert.ok(menuText.includes('owner-only'), 'the full text menu should retain the .vv notice');
+    assert.ok(menuText.includes('AI Horde'), 'the full text menu should retain AI-service notes');
 
-    const listedCommands = menuText.split('\n').slice(1)
-        .flatMap(line => line.slice(line.indexOf(':') + 1).trim().split(/\s+/));
-    assert.equal(listedCommands.length, 144, 'the caption should list every unique primary command');
+    const listedCommands = [...menuText.matchAll(/║ 🔹 \*\.([^*]+)\*/g)].map(match => match[1]);
+    const count = menuText.match(/Commands: \*(\d+)\*/);
+    assert.ok(count, 'the bordered header should show a command count');
+    assert.equal(Number(count[1]), listedCommands.length, 'the displayed count should match all rendered commands');
     for (const command of [
         'font', 'metallic', 'ice', 'snow', 'impressive', 'matrix', 'light', 'neon',
         'devil', 'purple', 'thunder', 'leaves', '1917', 'arena', 'hacker',
@@ -179,11 +184,11 @@ test('help sends the branded menu image with every canonical command in a valid 
         'q', 'paranoia', 'wyr', 'qr', 'time', 'define', 'wame', 'getpp',
         'yts', 'groupstats', 'myactivity', 'add', 'resetwarn'
     ]) {
-        assert.ok(listedCommands.includes(command), `expected caption to include ${command}`);
+        assert.ok(listedCommands.includes(command), `expected bordered text menu to include ${command}`);
     }
 });
 
-test('help falls back from image to plain text if menu media delivery fails', async () => {
+test('help retries the bordered text menu without forwarding metadata if sending fails', async () => {
     const helpCommand = require('../commands/help');
     const sent = [];
     let rejectedSends = 0;
@@ -194,7 +199,7 @@ test('help falls back from image to plain text if menu media delivery fails', as
             {
                 sendMessage: async (...args) => {
                     sent.push(args);
-                    if (rejectedSends < 2) {
+                    if (rejectedSends < 1) {
                         rejectedSends++;
                         throw new Error('simulated send failure');
                     }
@@ -207,14 +212,12 @@ test('help falls back from image to plain text if menu media delivery fails', as
         console.error = originalConsoleError;
     }
 
-    assert.equal(sent.length, 3, 'expected image send, formatted text fallback, then plain-text fallback');
-    assert.ok(Buffer.isBuffer(sent[0][1].image));
-    assert.equal(typeof sent[0][1].caption, 'string');
+    assert.equal(sent.length, 2, 'expected one formatted text attempt and one plain-text retry');
+    assert.equal(typeof sent[0][1].text, 'string');
     assert.equal(typeof sent[1][1].text, 'string');
-    assert.equal(typeof sent[2][1].text, 'string');
-    assert.equal(sent[1][1].text, sent[2][1].text);
-    assert.ok(sent[1][1].contextInfo, 'expected the first text fallback to preserve forwarding metadata');
-    assert.equal(sent[2][1].contextInfo, undefined, 'expected the final fallback to be plain text');
-    assert.ok(sent[2][1].text.includes('║ 🔹 *.metallic*'));
-    assert.ok(sent[2][1].text.includes('AI Horde'), 'full text fallback should preserve menu details');
+    assert.equal(sent[0][1].text, sent[1][1].text);
+    assert.ok(sent[0][1].contextInfo, 'expected the first text attempt to preserve forwarding metadata');
+    assert.equal(sent[1][1].contextInfo, undefined, 'expected the retry to be plain text');
+    assert.ok(sent[1][1].text.includes('║ 🔹 *.metallic*'));
+    assert.ok(sent[1][1].text.includes('AI Horde'), 'the plain-text menu should preserve all details');
 });
