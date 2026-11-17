@@ -1,9 +1,11 @@
 const settings = {
   packname: 'LordFarhan Bot',
   author: '‎',
+  stickerPackName: '☠︎ᴰᴸᴼᴿᴰ_ᶠᴬᴿᴴᴬᴺ〆',
+  stickerPackPublisher: '☠︎ᴰᴸᴼᴿᴰ_ᶠᴬᴿᴴᴬᴺ〆',
   botName: "𓆩♛ 𝕃𝕆ℝ𝔻 𝔽𝔸ℝℍ𝔸ℕ ♛𓆪",
-  botOwner: "𓆩♛ 𝕃𝕆ℝ𝔻 𝔽𝔸ℝℍ𝔸ℕ ♛𓆪", // Your name
-  ownerNumber: '0108817832', //Set your number here without + symbol, just add country code & number without any space
+  botOwner: "☠︎ᴰᴸᴼᴿᴰ_ᶠᴬᴿᴴᴬᴺ〆", // Your name
+  ownerNumber: '254795463911', // WhatsApp number without the + symbol
   giphyApiKey: process.env.GIPHY_API_KEY || '',
   commandMode: "public",
   maxStoreMessages: 20,

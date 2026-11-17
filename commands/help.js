@@ -37,7 +37,7 @@ function createMenuText(commandSource) {
                 const command = alias.trim().match(/^\S+/)?.[0];
                 if (command?.startsWith('.')) currentSection.commands.push(command);
             }
-        } else if (currentSection.title === '🤖 AI') {
+        } else if (currentSection.title === '🤖 AI' || currentSection.title === '🌐 GENERAL') {
             currentSection.notes.push(content);
         }
     }
@@ -99,6 +99,7 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 • .groupinfo
 • .staff / .admins
 • .vv (reply to view-once photo/video)
+  Note: .vv is owner-only and handles only view-once media sent by the linked account
 • .trt <text> <lang>
 • .ss <link>
 • .jid
@@ -159,11 +160,12 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 • .crop <reply to image>
 • .tgsticker <link>
 • .meme
-• .take <packname>
+• .take
 • .emojimix <emj1>+<emj2>
 • .igs <instagram link>
 
 *✨ TEXT EFFECTS*
+• .font <name> [or .font <number> <name>]
 • .metallic <text>
 • .ice <text>
 • .snow <text>

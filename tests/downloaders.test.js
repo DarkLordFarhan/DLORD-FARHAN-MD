@@ -6,12 +6,16 @@ const Module = require('node:module');
 const mediaDownloader = require('../lib/media-downloader');
 
 const originalLoad = Module._load;
+let viewonceDownloadAttempts = 0;
 Module._load = function (request, parent, isMain) {
     if (request === '@whiskeysockets/baileys') {
         return {
-            downloadContentFromMessage: async () => (async function* () {
-                yield Buffer.from('view-once-image');
-            })(),
+            downloadContentFromMessage: async () => {
+                viewonceDownloadAttempts++;
+                return (async function* () {
+                    yield Buffer.from('view-once-image');
+                })();
+            },
             jidNormalizedUser: jid => String(jid || '').replace(/:\d+(@)/, '$1')
         };
     }
@@ -144,19 +148,55 @@ test('downloader errors explain missing tools, login walls, rate limits, and for
     assert.match(mediaDownloader.formatDownloaderError({ stderr: 'ERROR: unknown extractor failure for https://example.com/secret?token=abc' }), /\[media link\]/);
 });
 
-test('`.vv` normalizes the bot JID and delivers view-once media to its inbox', async () => {
+test('`.vv` copies view-once media authored by the linked account to its inbox', async () => {
     assert.equal(
         viewonceCommand.normalizeBotInboxJid('15551234567:42@s.whatsapp.net'),
         '15551234567@s.whatsapp.net'
     );
 
+    viewonceDownloadAttempts = 0;
     const sent = [];
     const sock = {
         user: { id: '15551234567:42@s.whatsapp.net' },
         sendMessage: async (...args) => sent.push(args)
     };
     const message = {
-        key: { id: 'command-message' },
+        key: { id: 'command-message', fromMe: true, remoteJid: 'group@g.us' },
+        message: {
+            extendedTextMessage: {
+                text: '.vv',
+                contextInfo: {
+                    participant: '15551234567:7@s.whatsapp.net',
+                    quotedMessage: {
+                        viewOnceMessageV2: {
+                            message: { imageMessage: { mimetype: 'image/jpeg' } }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    await viewonceCommand(sock, 'group@g.us', message);
+    assert.equal(viewonceDownloadAttempts, 1);
+    const inboxDelivery = sent.find(([recipient, payload]) =>
+        recipient === '15551234567@s.whatsapp.net' && Buffer.isBuffer(payload.image)
+    );
+    assert.ok(inboxDelivery, 'expected recovered media to reach the normalized bot inbox');
+    assert.equal(inboxDelivery[1].caption.includes('view-once photo'), true);
+    assert.ok(sent.some(([recipient, payload]) => recipient === 'group@g.us' && /Check your bot inbox/.test(payload.text || '')));
+});
+
+test('`.vv` allows the linked account own self-chat media without a quoted participant JID', async () => {
+    viewonceDownloadAttempts = 0;
+    const sent = [];
+    const selfJid = '15551234567@s.whatsapp.net';
+    const sock = {
+        user: { id: '15551234567:42@s.whatsapp.net' },
+        sendMessage: async (...args) => sent.push(args)
+    };
+    const message = {
+        key: { id: 'self-chat-command', fromMe: true, remoteJid: selfJid },
         message: {
             extendedTextMessage: {
                 text: '.vv',
@@ -171,22 +211,67 @@ test('`.vv` normalizes the bot JID and delivers view-once media to its inbox', a
         }
     };
 
-    await viewonceCommand(sock, 'group@g.us', message);
-    const inboxDelivery = sent.find(([recipient, payload]) =>
-        recipient === '15551234567@s.whatsapp.net' && Buffer.isBuffer(payload.image)
-    );
-    assert.ok(inboxDelivery, 'expected recovered media to reach the normalized bot inbox');
-    assert.equal(inboxDelivery[1].caption.includes('view-once photo'), true);
-    assert.ok(sent.some(([recipient, payload]) => recipient === 'group@g.us' && /Check your bot inbox/.test(payload.text || '')));
+    await viewonceCommand(sock, selfJid, message);
+    assert.equal(viewonceDownloadAttempts, 1);
+    assert.ok(sent.some(([recipient, payload]) => recipient === selfJid && Buffer.isBuffer(payload.image)));
 });
 
+test('`.vv` refuses to copy view-once media authored by another sender', async () => {
+    viewonceDownloadAttempts = 0;
+    const sent = [];
+    const sock = {
+        user: { id: '15551234567:42@s.whatsapp.net' },
+        sendMessage: async (...args) => sent.push(args)
+    };
+    const message = {
+        key: { id: 'command-message', fromMe: true, remoteJid: 'group@g.us' },
+        message: {
+            extendedTextMessage: {
+                text: '.vv',
+                contextInfo: {
+                    participant: '15557654321:4@s.whatsapp.net',
+                    quotedMessage: {
+                        viewOnceMessageV2: {
+                            message: { imageMessage: { mimetype: 'image/jpeg' } }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    await viewonceCommand(sock, 'group@g.us', message);
+    assert.equal(viewonceDownloadAttempts, 0);
+    assert.ok(sent.some(([, payload]) => /only copies view-once media sent by the linked account/i.test(payload.text || '')));
+});
+
+test('`.vv` rejects commands from a non-linked account', async () => {
+    viewonceDownloadAttempts = 0;
+    const sent = [];
+    const sock = {
+        user: { id: '15551234567:42@s.whatsapp.net' },
+        sendMessage: async (...args) => sent.push(args)
+    };
+    const message = {
+        key: { id: 'command-message', fromMe: false, participant: '15557654321:4@s.whatsapp.net', remoteJid: 'group@g.us' },
+        message: { conversation: '.vv' }
+    };
+
+    await viewonceCommand(sock, 'group@g.us', message);
+    assert.equal(viewonceDownloadAttempts, 0);
+    assert.ok(sent.some(([, payload]) => /limited to the linked bot account owner/i.test(payload.text || '')));
+});
 
 test('`.vv` explains that it must directly reply to view-once media', async () => {
     const sent = [];
+    const sock = {
+        user: { id: '15551234567:42@s.whatsapp.net' },
+        sendMessage: async (...args) => sent.push(args)
+    };
     await viewonceCommand(
-        { sendMessage: async (...args) => sent.push(args) },
-        'chat',
-        { key: { id: 'vv-no-quote' }, message: { conversation: '.vv' } }
+        sock,
+        '15551234567@s.whatsapp.net',
+        { key: { id: 'vv-no-quote', fromMe: true, remoteJid: '15551234567@s.whatsapp.net' }, message: { conversation: '.vv' } }
     );
     assert.match(sent[0][1].text, /Reply directly to a view-once photo or video with \.vv/);
 });

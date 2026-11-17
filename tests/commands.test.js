@@ -104,19 +104,21 @@ test('help sends one scrollable and copyable bordered text menu with owner detai
     assert.equal(payload.image, undefined, 'the menu should not attach an image');
     const menuText = payload.text;
     assert.ok(menuText.includes('Owner:'));
+    assert.ok(menuText.includes('Owner: *☠︎ᴰᴸᴼᴿᴰ_ᶠᴬᴿᴴᴬᴺ〆*'));
     assert.ok(menuText.includes('Time:'));
     assert.ok(menuText.includes('State: *🟢 ONLINE*'));
-    assert.ok(menuText.includes('Commands: *136*'));
+    assert.ok(menuText.includes('Commands: *137*'));
     assert.ok(menuText.includes('Owner WhatsApp: *+254795463911*'));
     assert.ok(menuText.includes('╔════════◇◆◇═══════╗'));
     assert.ok(menuText.includes('╠───────────────╣'));
     assert.ok(menuText.includes('╚═══════════════╝'));
+    assert.ok(menuText.includes('.vv is owner-only and handles only view-once media sent by the linked account'));
 
     const commandLines = menuText.split('\n').filter(line => line.includes('║ 🔹 *'));
-    assert.equal(commandLines.length, 136, 'every command and alias should appear in the menu');
+    assert.equal(commandLines.length, 137, 'every command and alias should appear in the menu');
     assert.ok(commandLines.every(line => line.startsWith('║ 🔹 *')), 'each command should use the requested 🔹 prefix');
     for (const command of [
-        '.metallic', '.ice', '.snow', '.impressive', '.matrix', '.light', '.neon',
+        '.font', '.metallic', '.ice', '.snow', '.impressive', '.matrix', '.light', '.neon',
         '.devil', '.purple', '.thunder', '.leaves', '.1917', '.arena', '.hacker',
         '.sand', '.blackpink', '.glitch', '.fire', '.gif', '.gpt', '.gemini',
         '.imagine', '.dalle', '.flux', '.sora', '.vv', '.autostatus', '.git', '.github'

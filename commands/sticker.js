@@ -2,9 +2,8 @@ const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const { exec } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const settings = require('../settings');
 const webp = require('node-webpmux');
-const crypto = require('crypto');
+const createStickerMetadata = require('../lib/sticker-metadata');
 
 async function stickerCommand(sock, chatId, message) {
     // The message that will be quoted in the reply.
@@ -139,11 +138,7 @@ async function stickerCommand(sock, chatId, message) {
         await img.load(webpBuffer);
 
         // Create metadata
-        const json = {
-            'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
-            'sticker-pack-name': settings.packname || 'LordFarhanBot',
-            'emojis': ['🤖']
-        };
+        const json = createStickerMetadata(['🤖']);
 
         // Create exif buffer
         const exifAttr = Buffer.from([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00]);
@@ -169,11 +164,7 @@ async function stickerCommand(sock, chatId, message) {
                     const smallWebp = fs.readFileSync(tempOutput3);
                     const img2 = new webp.Image();
                     await img2.load(smallWebp);
-                    const json2 = {
-                        'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
-                        'sticker-pack-name': settings.packname || 'LordFarhanBot',
-                        'emojis': ['🤖']
-                    };
+                    const json2 = createStickerMetadata(['🤖']);
                     const exifAttr2 = Buffer.from([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00]);
                     const jsonBuffer2 = Buffer.from(JSON.stringify(json2), 'utf8');
                     const exif2 = Buffer.concat([exifAttr2, jsonBuffer2]);

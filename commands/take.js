@@ -2,19 +2,16 @@ const fs = require('fs');
 const path = require('path');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const webp = require('node-webpmux');
-const crypto = require('crypto');
+const createStickerMetadata = require('../lib/sticker-metadata');
 
 async function takeCommand(sock, chatId, message, args) {
     try {
         // Check if message is a reply to a sticker
         const quotedMessage = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         if (!quotedMessage?.stickerMessage) {
-            await sock.sendMessage(chatId, { text: '❌ Reply to a sticker with .take <packname>' });
+            await sock.sendMessage(chatId, { text: '❌ Reply to a sticker with .take' });
             return;
         }
-
-        // Get the packname from args or use default
-        const packname = args.join(' ') || 'LordFarhanBot MD';
 
         try {
             // Download the sticker
@@ -42,11 +39,7 @@ async function takeCommand(sock, chatId, message, args) {
             await img.load(stickerBuffer);
 
             // Create metadata
-            const json = {
-                'sticker-pack-id': crypto.randomBytes(32).toString('hex'),
-                'sticker-pack-name': packname,
-                'emojis': ['🤖']
-            };
+            const json = createStickerMetadata(['🤖']);
 
             // Create exif buffer
             const exifAttr = Buffer.from([0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x41, 0x57, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00]);
@@ -78,4 +71,4 @@ async function takeCommand(sock, chatId, message, args) {
     }
 }
 
-module.exports = takeCommand; 
+module.exports = takeCommand;

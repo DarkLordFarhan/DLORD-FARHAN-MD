@@ -112,6 +112,7 @@ const { simpCommand } = require('./commands/simp');
 const { stupidCommand } = require('./commands/stupid');
 const stickerTelegramCommand = require('./commands/stickertelegram');
 const textmakerCommand = require('./commands/textmaker');
+const fancyFontCommand = require('./commands/fancyfont');
 const { handleAntideleteCommand, handleMessageRevocation, storeMessage } = require('./commands/antidelete');
 const clearTmpCommand = require('./commands/cleartmp');
 const setProfilePicture = require('./commands/setpp');
@@ -454,6 +455,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             case userMessage === '.help' || userMessage === '.menu' || userMessage === '.bot' || userMessage === '.list':
                 await helpCommand(sock, chatId, message, global.channelLink);
+                commandExecuted = true;
+                break;
+            case /^\.(?:font|fonts|fancyfont|fancy)(?:\s|$)/.test(userMessage):
+                await fancyFontCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
             case userMessage === '.sticker' || userMessage === '.s':
