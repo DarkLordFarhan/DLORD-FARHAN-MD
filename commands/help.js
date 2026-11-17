@@ -1,9 +1,18 @@
 const settings = require('../settings');
+const fs = require('fs');
+const path = require('path');
 
 const MENU_SECTION_TITLES = new Set([
     '🌐 GENERAL', '👮 ADMIN', '👑 OWNER', '🎨 IMAGE & STICKER', '✨ TEXT EFFECTS',
     '🖼️ PIES', '🎮 GAMES', '🤖 AI', '🎯 FUN', '📥 DOWNLOADS', '💻 GITHUB'
 ]);
+const MENU_CAPTION_LABELS = new Map([
+    ['🌐 GENERAL', 'Gen'], ['👮 ADMIN', 'Admin'], ['👑 OWNER', 'Owner'],
+    ['🎨 IMAGE & STICKER', 'Img'], ['✨ TEXT EFFECTS', 'Text'], ['🖼️ PIES', 'Pies'],
+    ['🎮 GAMES', 'Games'], ['🤖 AI', 'AI'], ['🎯 FUN', 'Fun'],
+    ['📥 DOWNLOADS', 'Down'], ['💻 GITHUB', 'GitHub']
+]);
+const MAX_MEDIA_CAPTION_LENGTH = 1024;
 
 function formatUptime(seconds) {
     const total = Math.max(0, Math.floor(seconds));
@@ -70,6 +79,40 @@ function createMenuText(commandSource) {
     return `${intro}\n\n${categoryText}`;
 }
 
+function createMenuCaption(commandSource) {
+    const sections = [];
+    let currentSection = null;
+
+    for (const line of commandSource.split(/\r?\n/)) {
+        const heading = line.match(/^\*([^*]+)\*$/);
+        if (heading && MENU_CAPTION_LABELS.has(heading[1])) {
+            currentSection = { label: MENU_CAPTION_LABELS.get(heading[1]), commands: [] };
+            sections.push(currentSection);
+            continue;
+        }
+        if (!currentSection) continue;
+
+        const bullet = line.match(/^•\s+(.+)$/);
+        if (!bullet) continue;
+        const command = bullet[1].match(/^(\.[^\s/]+)/)?.[1];
+        if (command) currentSection.commands.push(command.slice(1));
+    }
+
+    const categoryLines = sections
+        .map(section => ({ ...section, commands: [...new Set(section.commands)] }))
+        .filter(section => section.commands.length > 0)
+        .map(section => `${section.label}: ${section.commands.join(' ')}`);
+    const detailedCaption = ['DLORD FARHAN | Prefix: .', ...categoryLines].join('\n');
+    if (detailedCaption.length <= MAX_MEDIA_CAPTION_LENGTH) return detailedCaption;
+
+    const allCommands = [...new Set(sections.flatMap(section => section.commands))];
+    const compactCaption = `DLORD FARHAN | .\n${allCommands.join(' ')}`;
+    if (compactCaption.length > MAX_MEDIA_CAPTION_LENGTH) {
+        throw new RangeError(`Menu command list exceeds the ${MAX_MEDIA_CAPTION_LENGTH}-character image caption limit.`);
+    }
+    return compactCaption;
+}
+
 async function helpCommand(sock, chatId, message) {
     const nairobiTime = new Intl.DateTimeFormat('en-KE', {
         timeZone: 'Africa/Nairobi', dateStyle: 'medium', timeStyle: 'short'
@@ -89,14 +132,22 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 • .owner
 • .joke
 • .quote
+• .q / .quotedinfo (reply to a message)
 • .fact
 • .status / .uptime
 • .weather <city>
 • .news
+• .define <word>
+• .time [timezone]
+• .qr <text or link>
+• .wame <international phone number>
+• .getpp (mention/reply)
 • .attp <text>
 • .lyrics <song_title>
 • .8ball <question>
 • .groupinfo
+• .groupstats
+• .myactivity
 • .staff / .admins
 • .vv (reply to view-once photo/video)
   Note: .vv is owner-only and handles only view-once media sent by the linked account
@@ -115,6 +166,8 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 • .kick @user
 • .warnings @user
 • .warn @user
+• .resetwarn @user (admin)
+• .add <phone number>
 • .antilink
 • .antibadword
 • .clear
@@ -226,11 +279,14 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 • .character @user
 • .wasted @user
 • .ship @user
+• .paranoia
+• .wyr / .wouldyourather
 • .simp @user
 • .stupid @user [text]
 • .gif <search term>
 
 *📥 DOWNLOADS*
+• .yts <search terms>
 • .play <song_name>
 • .song <song_name>
 • .spotify <query>
@@ -247,17 +303,42 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 `;
     const menuMessage = createMenuText(helpMessage);
 
+    const contextInfo = {
+        forwardingScore: 1,
+        isForwarded: true
+    };
+    const menuImagePath = path.join(__dirname, '../assets/bot_image.jpg');
+
     try {
-        await sock.sendMessage(chatId, {
-            text: menuMessage,
-            contextInfo: {
-                forwardingScore: 1,
-                isForwarded: true
+        if (fs.existsSync(menuImagePath)) {
+            try {
+                const menuCaption = createMenuCaption(helpMessage);
+                const menuImage = fs.readFileSync(menuImagePath);
+                await sock.sendMessage(chatId, {
+                    image: menuImage,
+                    caption: menuCaption,
+                    contextInfo
+                }, { quoted: message });
+                return;
+            } catch (imageError) {
+                console.error('Error sending the image menu; falling back to text:', imageError);
             }
-        }, { quoted: message });
+        }
+
+        try {
+            await sock.sendMessage(chatId, {
+                text: menuMessage,
+                contextInfo
+            }, { quoted: message });
+        } catch (error) {
+            console.error('Error sending the menu with forwarding metadata; retrying as plain text:', error);
+            await sock.sendMessage(chatId, { text: menuMessage }, { quoted: message });
+        }
     } catch (error) {
-        console.error('Error sending the menu with forwarding metadata; retrying as plain text:', error);
-        await sock.sendMessage(chatId, { text: menuMessage }, { quoted: message });
+        console.error('Menu failed to load:', error);
+        await sock.sendMessage(chatId, {
+            text: '❌ Menu failed to load. Please check the bot console.'
+        }, { quoted: message });
     }
 }
 

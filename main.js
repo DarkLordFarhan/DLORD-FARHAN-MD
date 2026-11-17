@@ -69,6 +69,9 @@ const tagNotAdminCommand = require('./commands/tagnotadmin');
 const hideTagCommand = require('./commands/hidetag');
 const jokeCommand = require('./commands/joke');
 const quoteCommand = require('./commands/quote');
+const { paranoiaCommand } = require('./commands/paranoia');
+const { wouldYouRatherCommand } = require('./commands/wyr');
+const { quotedInfoCommand } = require('./commands/quotedinfo');
 const factCommand = require('./commands/fact');
 const weatherCommand = require('./commands/weather');
 const newsCommand = require('./commands/news');
@@ -140,6 +143,16 @@ const { piesCommand, piesAlias } = require('./commands/pies');
 const stickercropCommand = require('./commands/stickercrop');
 const updateCommand = require('./commands/update');
 const statusCommand = require('./commands/status');
+const { qrCommand } = require('./commands/qr');
+const { timeCommand } = require('./commands/time');
+const { defineCommand } = require('./commands/define');
+const { wameCommand } = require('./commands/wame');
+const { ytsCommand } = require('./commands/yts');
+const { groupStatsCommand } = require('./commands/groupstats');
+const { myActivityCommand } = require('./commands/myactivity');
+const { getProfilePictureCommand } = require('./commands/getpp');
+const { addCommand } = require('./commands/add');
+const { resetWarnCommand } = require('./commands/resetwarn');
 const removebgCommand = require('./commands/removebg');
 const { reminiCommand } = require('./commands/remini');
 const { igsCommand } = require('./commands/igs');
@@ -358,9 +371,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
         }
 
         // List of admin commands
-        const adminCommands = ['.mute', '.unmute', '.ban', '.unban', '.promote', '.demote', '.kick', '.tagall', '.tagnotadmin', '.hidetag', '.antilink', '.antitag', '.setgdesc', '.setgname', '.setgpp'];
+        const adminCommands = ['.mute', '.unmute', '.ban', '.unban', '.promote', '.demote', '.kick', '.add', '.resetwarn', '.tagall', '.tagnotadmin', '.hidetag', '.antilink', '.antitag', '.setgdesc', '.setgname', '.setgpp'];
         const isAdminCommand = adminCommands.some(cmd => userMessage.startsWith(cmd));
-        const botAdminRequiredCommands = ['.mute', '.unmute', '.promote', '.demote', '.kick', '.setgdesc', '.setgname', '.setgpp'];
+        const botAdminRequiredCommands = ['.mute', '.unmute', '.promote', '.demote', '.kick', '.add', '.setgdesc', '.setgname', '.setgpp'];
         const isBotAdminRequiredCommand = botAdminRequiredCommands.some(cmd => userMessage.startsWith(cmd));
 
         // List of owner commands
@@ -420,6 +433,12 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 const mentionedJidListKick = message.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
                 await kickCommand(sock, chatId, senderId, mentionedJidListKick, message);
                 break;
+            case /^\.add(?:\s|$)/.test(userMessage): {
+                const addNumber = userMessage.replace(/^\.add\s*/i, '').trim();
+                await addCommand(sock, chatId, message, addNumber, { isSenderAdmin, isBotAdmin });
+                commandExecuted = true;
+                break;
+            }
             case userMessage.startsWith('.mute'):
                 {
                     const parts = userMessage.trim().split(/\s+/);
@@ -453,6 +472,34 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 await unbanCommand(sock, chatId, message);
                 break;
+            case userMessage === '.getpp':
+                await getProfilePictureCommand(sock, chatId, message, senderId);
+                commandExecuted = true;
+                break;
+            case /^\.(?:qr|qrcode)(?:\s|$)/.test(userMessage): {
+                const qrInput = userMessage.replace(/^\S+\s*/i, '').trim();
+                await qrCommand(sock, chatId, message, qrInput);
+                commandExecuted = true;
+                break;
+            }
+            case /^\.(?:time|clock|date|now)(?:\s|$)/.test(userMessage): {
+                const timeZone = userMessage.replace(/^\S+\s*/i, '').trim();
+                await timeCommand(sock, chatId, message, timeZone);
+                commandExecuted = true;
+                break;
+            }
+            case /^\.(?:define|dictionary)(?:\s|$)/.test(userMessage): {
+                const word = userMessage.replace(/^\S+\s*/i, '').trim();
+                await defineCommand(sock, chatId, message, word);
+                commandExecuted = true;
+                break;
+            }
+            case /^\.wame(?:\s|$)/.test(userMessage): {
+                const phone = userMessage.replace(/^\.wame\s*/i, '').trim();
+                await wameCommand(sock, chatId, message, phone);
+                commandExecuted = true;
+                break;
+            }
             case userMessage === '.help' || userMessage === '.menu' || userMessage === '.bot' || userMessage === '.list':
                 await helpCommand(sock, chatId, message, global.channelLink);
                 commandExecuted = true;
@@ -468,6 +515,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage.startsWith('.warnings'):
                 const mentionedJidListWarnings = message.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
                 await warningsCommand(sock, chatId, mentionedJidListWarnings);
+                break;
+            case /^\.resetwarn(?:\s|$)/.test(userMessage):
+                await resetWarnCommand(sock, chatId, message, { isSenderAdmin, isBotAdmin });
+                commandExecuted = true;
                 break;
             case userMessage.startsWith('.warn'):
                 const mentionedJidListWarn = message.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
@@ -605,8 +656,17 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage === '.joke':
                 await jokeCommand(sock, chatId, message);
                 break;
+            case userMessage === '.paranoia':
+                await paranoiaCommand(sock, chatId, message);
+                break;
+            case userMessage === '.wyr' || userMessage === '.wouldyourather':
+                await wouldYouRatherCommand(sock, chatId, message);
+                break;
             case userMessage === '.quote':
                 await quoteCommand(sock, chatId, message);
+                break;
+            case userMessage === '.q' || userMessage === '.quotedinfo':
+                await quotedInfoCommand(sock, chatId, message);
                 break;
             case userMessage === '.fact':
                 await factCommand(sock, chatId, message, message);
@@ -622,6 +682,12 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage === '.news':
                 await newsCommand(sock, chatId);
                 break;
+            case /^\.(?:yts|ytsearch)(?:\s|$)/.test(userMessage): {
+                const query = userMessage.replace(/^\S+\s*/i, '').trim();
+                await ytsCommand(sock, chatId, message, query);
+                commandExecuted = true;
+                break;
+            }
             case userMessage.startsWith('.ttt') || userMessage.startsWith('.tictactoe'):
                 const tttText = userMessage.split(' ').slice(1).join(' ');
                 await tictactoeCommand(sock, chatId, senderId, tttText);
@@ -636,6 +702,14 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             case userMessage === '.topmembers':
                 topMembers(sock, chatId, isGroup);
+                break;
+            case userMessage === '.groupstats':
+                await groupStatsCommand(sock, chatId, message);
+                commandExecuted = true;
+                break;
+            case userMessage === '.myactivity':
+                await myActivityCommand(sock, chatId, message, senderId);
+                commandExecuted = true;
                 break;
             case userMessage.startsWith('.hangman'):
                 startHangman(sock, chatId);
