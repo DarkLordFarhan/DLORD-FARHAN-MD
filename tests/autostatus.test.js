@@ -9,7 +9,8 @@ const {
     autoStatusCommand,
     handleStatusUpdate,
     parseReactionEmojis,
-    selectReactionEmoji
+    selectReactionEmoji,
+    waitForStatusQueue
 } = require('../commands/autostatus');
 
 function makeTempConfig() {
@@ -70,11 +71,19 @@ test('status reactions use a configured emoji even when automatic status viewing
     };
 
     assert.equal(selectReactionEmoji({ reactEmojis: ['🔥', '✨'] }, () => 0.75), '✨');
-    await handleStatusUpdate(
+    const startedAt = Date.now();
+    handleStatusUpdate(
         sock,
         { key: statusKey },
         { enabled: false, reactOn: true, reactEmojis: ['✨'] }
     );
+    handleStatusUpdate(
+        sock,
+        { key: statusKey },
+        { enabled: false, reactOn: true, reactEmojis: ['✨'] }
+    );
+    assert.ok(Date.now() - startedAt < 100, 'status events should be queued without delaying normal message handling');
+    await waitForStatusQueue(sock);
 
     assert.deepEqual(readCalls, [], 'auto-view off should not mark statuses read');
     assert.equal(relayed.length, 1);

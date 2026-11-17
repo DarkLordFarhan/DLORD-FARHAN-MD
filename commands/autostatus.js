@@ -4,6 +4,9 @@ const isOwnerOrSudo = require('../lib/isOwner');
 
 const DEFAULT_REACTION_EMOJIS = ['💚'];
 const MAX_REACTION_EMOJIS = 10;
+const MAX_PENDING_STATUS_EVENTS = 50;
+const MAX_STATUS_DEDUPE_ENTRIES = 500;
+const STATUS_DEDUPE_TTL_MS = 5 * 60 * 1000;
 const emojiSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 const EMOJI_COMPONENTS_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\uFE0E\uFE0F\u200D\u20E3#*0-9]+$/u;
 const EMOJI_BASE = /[\p{Extended_Pictographic}\p{Regional_Indicator}]/u;
@@ -17,6 +20,7 @@ const channelInfo = {
 };
 
 const configPath = path.join(__dirname, '../data/autoStatus.json');
+const statusQueues = new WeakMap();
 
 if (!fs.existsSync(configPath)) {
     fs.writeFileSync(configPath, JSON.stringify({
@@ -256,32 +260,82 @@ async function handleStatusKey(sock, statusKey, config) {
     }
 }
 
-async function handleStatusUpdate(sock, status, configOverride) {
-    try {
-        const config = configOverride || readAutoStatusConfig();
-        if (!config.enabled && !config.reactOn) return;
+function getStatusKeys(status) {
+    const keys = [
+        status?.key,
+        status?.reaction?.key,
+        ...(Array.isArray(status?.messages) ? status.messages.map(message => message?.key) : [])
+    ];
+    return keys.filter(key => key?.remoteJid === 'status@broadcast' && key.id);
+}
 
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        if (status.messages && status.messages.length > 0) {
-            const msg = status.messages[0];
-            if (msg.key && msg.key.remoteJid === 'status@broadcast') {
-                await handleStatusKey(sock, msg.key, config);
-                return;
+async function drainStatusQueue(sock, queueState) {
+    if (queueState.running) return queueState.worker;
+    queueState.running = true;
+    queueState.worker = (async () => {
+        while (queueState.pending.length) {
+            const statusKey = queueState.pending.shift();
+            try {
+                // Keep status actions paced, but never make the WhatsApp upsert handler wait.
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                const config = statusKey.configOverride || readAutoStatusConfig();
+                if (config.enabled || config.reactOn) {
+                    await handleStatusKey(sock, statusKey.key, config);
+                }
+            } catch (error) {
+                console.error('❌ Error in auto status view:', error?.message || error);
             }
         }
+    })().finally(() => {
+        queueState.running = false;
+        queueState.worker = null;
+        if (queueState.pending.length) void drainStatusQueue(sock, queueState);
+    });
+    return queueState.worker;
+}
 
-        if (status.key && status.key.remoteJid === 'status@broadcast') {
-            await handleStatusKey(sock, status.key, config);
-            return;
-        }
+function handleStatusUpdate(sock, status, configOverride) {
+    if (!sock || (typeof sock !== 'object' && typeof sock !== 'function')) return;
+    const keys = getStatusKeys(status);
+    if (!keys.length) return;
 
-        if (status.reaction && status.reaction.key.remoteJid === 'status@broadcast') {
-            await handleStatusKey(sock, status.reaction.key, config);
-        }
-    } catch (error) {
-        console.error('❌ Error in auto status view:', error.message);
+    let queueState = statusQueues.get(sock);
+    if (!queueState) {
+        queueState = { pending: [], seen: new Map(), running: false, worker: null };
+        statusQueues.set(sock, queueState);
     }
+
+    const now = Date.now();
+    for (const [key, expiresAt] of queueState.seen) {
+        if (expiresAt <= now) queueState.seen.delete(key);
+    }
+
+    for (const key of keys) {
+        const dedupeKey = `${key.id}|${key.participant || key.remoteJid}`;
+        if (queueState.seen.has(dedupeKey)) continue;
+
+        queueState.seen.set(dedupeKey, now + STATUS_DEDUPE_TTL_MS);
+        while (queueState.seen.size > MAX_STATUS_DEDUPE_ENTRIES) {
+            queueState.seen.delete(queueState.seen.keys().next().value);
+        }
+
+        if (queueState.pending.length >= MAX_PENDING_STATUS_EVENTS) {
+            const dropped = queueState.pending.shift();
+            const droppedKey = `${dropped.key.id}|${dropped.key.participant || dropped.key.remoteJid}`;
+            queueState.seen.delete(droppedKey);
+            console.warn('[AUTOSTATUS] Queue full; dropping the oldest pending status event.');
+        }
+        queueState.pending.push({ key, configOverride });
+    }
+
+    if (queueState.pending.length && !queueState.running) {
+        void drainStatusQueue(sock, queueState);
+    }
+}
+
+async function waitForStatusQueue(sock) {
+    const queueState = statusQueues.get(sock);
+    if (queueState?.worker) await queueState.worker;
 }
 
 module.exports = {
@@ -289,5 +343,6 @@ module.exports = {
     handleStatusUpdate,
     parseReactionEmojis,
     selectReactionEmoji,
-    reactToStatus
+    reactToStatus,
+    waitForStatusQueue
 };
