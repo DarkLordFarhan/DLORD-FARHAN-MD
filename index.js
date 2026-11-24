@@ -437,7 +437,7 @@ async function startXeonBotInc() {
                     if (Object.keys(mek.message)[0] === 'ephemeralMessage') {
                         mek.message = mek.message.ephemeralMessage.message;
                     }
-                    if (!shouldProcessUpsertMessage(mek, chatUpdate?.type)) continue;
+                    if (!shouldProcessUpsertMessage(mek, chatUpdate?.type, Date.now(), XeonBotInc)) continue;
                     try {
                         if (mek.key?.remoteJid === 'status@broadcast') {
                             await handleStatus(XeonBotInc, { ...chatUpdate, messages: [mek] });

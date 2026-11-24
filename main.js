@@ -200,7 +200,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         const message = messages?.[0];
         if (!message?.message) return;
-        if (type === 'append' && !shouldProcessUpsertMessage(message, type)) return;
+        if (type === 'append' && !shouldProcessUpsertMessage(message, type, Date.now(), sock)) return;
 
         // Reliable public menu/help dispatch before other command restrictions.
         const incomingChatId = message.key?.remoteJid;

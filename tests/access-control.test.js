@@ -93,6 +93,30 @@ test('append batches process only recent self-sent commands, including a command
     assert.equal(shouldProcessUpsertMessage(foreignCommand, 'notify', now), true);
 });
 
+test('append commands from the linked phone or LID are recognized without `fromMe: true`', () => {
+    const now = 1_800_000_000_000;
+    const sock = {
+        user: {
+            id: '254795463911:4@s.whatsapp.net',
+            lid: '1133557799:2@lid'
+        }
+    };
+    const selfChatCommand = {
+        key: { fromMe: false, remoteJid: '254795463911:9@s.whatsapp.net' },
+        messageTimestamp: Math.floor((now - 10_000) / 1000),
+        message: { conversation: '.menu' }
+    };
+    const linkedGroupCommand = {
+        key: { participant: '1133557799:7@lid', remoteJid: 'group@g.us' },
+        messageTimestamp: Math.floor((now - 10_000) / 1000),
+        message: { conversation: '.vv' }
+    };
+
+    assert.equal(shouldProcessUpsertMessage(selfChatCommand, 'append', now, sock), true);
+    assert.equal(shouldProcessUpsertMessage(linkedGroupCommand, 'append', now, sock), true);
+    assert.equal(shouldProcessUpsertMessage(selfChatCommand, 'append', now), false);
+});
+
 test('admin can use tagall even when the bot account is not a group admin', async () => {
     const sent = [];
     const sock = {
