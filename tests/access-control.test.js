@@ -6,6 +6,7 @@ const isLinkedOwner = require('../lib/isLinkedOwner');
 const isOwnerOrSudo = require('../lib/isOwner');
 const normalizeJid = require('../lib/normalize-jid');
 const shouldProcessUpsertMessage = require('../lib/should-process-upsert-message');
+const shouldSkipBaileysEcho = shouldProcessUpsertMessage.shouldSkipBaileysEcho;
 const resetlinkCommand = require('../commands/resetlink');
 const tagAllCommand = require('../commands/tagall');
 
@@ -115,6 +116,27 @@ test('append commands from the linked phone or LID are recognized without `fromM
     assert.equal(shouldProcessUpsertMessage(selfChatCommand, 'append', now, sock), true);
     assert.equal(shouldProcessUpsertMessage(linkedGroupCommand, 'append', now, sock), true);
     assert.equal(shouldProcessUpsertMessage(selfChatCommand, 'append', now), false);
+});
+
+test('BAE5 echo suppression preserves dot-commands from the linked account', () => {
+    const sock = { user: { id: '254795463911:4@s.whatsapp.net' } };
+    const linkedCommand = {
+        key: { id: 'BAE5abcdefghijkl', fromMe: true, remoteJid: '254795463911@s.whatsapp.net' },
+        message: { conversation: '.menu' }
+    };
+    const linkedBotReply = {
+        key: { id: 'BAE5abcdefghijkl', fromMe: true, remoteJid: '254795463911@s.whatsapp.net' },
+        message: { conversation: 'Bot connected successfully.' }
+    };
+    const otherCommand = {
+        key: { id: 'BAE5abcdefghijkl', fromMe: false, remoteJid: '254700000000@s.whatsapp.net' },
+        message: { conversation: '.menu' }
+    };
+
+    assert.equal(shouldSkipBaileysEcho(linkedCommand, sock), false);
+    assert.equal(shouldSkipBaileysEcho(linkedBotReply, sock), true);
+    assert.equal(shouldSkipBaileysEcho(otherCommand, sock), true);
+    assert.equal(shouldSkipBaileysEcho({ key: { id: 'OTHER123' } }, sock), false);
 });
 
 test('admin can use tagall even when the bot account is not a group admin', async () => {

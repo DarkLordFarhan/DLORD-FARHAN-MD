@@ -17,6 +17,7 @@ const FileType = require('file-type');
 const axios = require('axios');
 const { handleMessages, handleGroupParticipantUpdate, handleStatus } = require('./main');
 const shouldProcessUpsertMessage = require('./lib/should-process-upsert-message');
+const shouldSkipBaileysEcho = shouldProcessUpsertMessage.shouldSkipBaileysEcho;
 const PhoneNumber = require('awesome-phonenumber');
 const { imageToWebp, videoToWebp, writeExifImg, writeExifVid } = require('./lib/exif');
 const { smsg, isUrl, generateMessageTag, getBuffer, getSizeMedia, fetch, await, sleep, reSize } = require('./lib/myfunc');
@@ -446,7 +447,7 @@ async function startXeonBotInc() {
                         if (!XeonBotInc.public && !mek.key?.fromMe && chatUpdate.type === 'notify' && !mek.key?.remoteJid?.endsWith('@g.us')) {
                             continue;
                         }
-                        if (mek.key?.id?.startsWith('BAE5') && mek.key.id.length === 16) continue;
+                        if (shouldSkipBaileysEcho(mek, XeonBotInc)) continue;
                         if (XeonBotInc?.msgRetryCounterCache) XeonBotInc.msgRetryCounterCache.clear();
                         await handleMessages(XeonBotInc, { ...chatUpdate, messages: [mek] }, true);
                     } catch (err) {
