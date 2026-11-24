@@ -9,6 +9,7 @@ const mediaDownloader = require('../lib/media-downloader');
 const originalLoad = Module._load;
 let viewonceDownloadAttempts = 0;
 let viewonceDownloadType;
+let viewonceDownloadedMedia;
 let viewonceDownloadFactory;
 Module._load = function (request, parent, isMain) {
     if (request === '@whiskeysockets/baileys') {
@@ -16,6 +17,7 @@ Module._load = function (request, parent, isMain) {
             downloadContentFromMessage: async (_media, type) => {
                 viewonceDownloadAttempts++;
                 viewonceDownloadType = type;
+                viewonceDownloadedMedia = _media;
                 if (viewonceDownloadFactory) return viewonceDownloadFactory(_media, type);
                 return (async function* () {
                     yield Buffer.from(`view-once-${type}`);
@@ -210,6 +212,56 @@ test('`.vv` copies view-once media authored by the linked account to its inbox',
     assert.ok(sent.some(([recipient, payload]) => recipient === 'group@g.us' && /Check your bot inbox/.test(payload.text || '')));
 });
 
+test('`.vv` resolves media URLs and the original Baileys key from the cached full message', async () => {
+    viewonceDownloadAttempts = 0;
+    viewonceDownloadedMedia = undefined;
+    const sent = [];
+    const originalMessage = {
+        key: { id: 'cached-view-once', remoteJid: 'group@g.us', participant: '15551234567@s.whatsapp.net', fromMe: true },
+        message: {
+            viewOnceMessageV2: {
+                message: {
+                    imageMessage: {
+                        url: 'https://mmg.whatsapp.net/cached-media',
+                        directPath: '/v/t62.7118-24/cached-media',
+                        mediaKey: Buffer.from('test-media-key'),
+                        mimetype: 'image/jpeg'
+                    }
+                }
+            }
+        }
+    };
+    const sock = {
+        user: { id: '15551234567:42@s.whatsapp.net' },
+        loadMessage: async (jid, id) => jid === 'group@g.us' && id === 'cached-view-once' ? originalMessage : null,
+        sendMessage: async (...args) => sent.push(args)
+    };
+    const message = {
+        key: { id: 'cached-vv-command', fromMe: true, remoteJid: 'group@g.us' },
+        message: {
+            extendedTextMessage: {
+                text: '.vv',
+                contextInfo: {
+                    stanzaId: 'cached-view-once',
+                    participant: '15551234567:7@s.whatsapp.net',
+                    quotedMessage: {
+                        viewOnceMessageV2: {
+                            message: { imageMessage: { mimetype: 'image/jpeg' } }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    await viewonceCommand(sock, 'group@g.us', message);
+    assert.equal(viewonceDownloadAttempts, 1);
+    assert.equal(viewonceDownloadedMedia?.directPath, '/v/t62.7118-24/cached-media');
+    assert.equal(viewonceDownloadedMedia?.url, 'https://mmg.whatsapp.net/cached-media');
+    assert.ok(sent.some(([recipient, payload]) => recipient === '15551234567@s.whatsapp.net' && payload.image));
+    assert.ok(sent.some(([recipient, payload]) => recipient === 'group@g.us' && /processing completed/i.test(payload.text || '')));
+});
+
 test('`.vv` returns a clear error when WhatsApp stalls before starting the media stream', async () => {
     const sent = [];
     const sock = {
@@ -320,9 +372,25 @@ test('`.vv` privately sends linked-account view-once audio and reacts in the ori
 test('`.vv` uses Baileys downloadMediaMessage with the quoted key and media reupload callback', async () => {
     let downloadArgs;
     const delivered = [];
+    const originalMessage = {
+        key: { id: 'quoted-view-once-id', remoteJid: 'group@g.us', participant: '15551234567:7@s.whatsapp.net', fromMe: true },
+        message: {
+            viewOnceMessageV2: {
+                message: {
+                    imageMessage: {
+                        url: 'https://mmg.whatsapp.net/original',
+                        directPath: '/v/original',
+                        mediaKey: Buffer.from('original-media-key'),
+                        mimetype: 'image/jpeg'
+                    }
+                }
+            }
+        }
+    };
     const sock = {
         user: { id: '15551234567:42@s.whatsapp.net' },
         updateMediaMessage: async quoted => quoted,
+        loadMessage: async (jid, id) => jid === 'group@g.us' && id === 'quoted-view-once-id' ? originalMessage : null,
         sendMessage: async (...args) => {
             const image = args[1].image;
             if (image?.url) delivered.push({ recipient: args[0], bytes: await fs.readFile(image.url) });
@@ -358,6 +426,7 @@ test('`.vv` uses Baileys downloadMediaMessage with the quoted key and media reup
     assert.equal(downloadArgs[0].key.id, 'quoted-view-once-id');
     assert.equal(downloadArgs[0].key.participant, '15551234567:7@s.whatsapp.net');
     assert.equal(downloadArgs[0].key.fromMe, true);
+    assert.equal(downloadArgs[0].message.viewOnceMessageV2.message.imageMessage.directPath, '/v/original');
     assert.equal(downloadArgs[1], 'stream');
     assert.equal(typeof downloadArgs[3].logger.info, 'function');
     assert.equal(downloadArgs[3].reuploadRequest, sock.updateMediaMessage);

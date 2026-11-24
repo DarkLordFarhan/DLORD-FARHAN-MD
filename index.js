@@ -416,6 +416,17 @@ async function startXeonBotInc() {
         });
 
         activeSocket = XeonBotInc;
+        XeonBotInc.loadMessage = async (jid, id) => {
+            const directMatch = await store.loadMessage(jid, id);
+            if (directMatch) return directMatch;
+            const normalizedJid = jidNormalizedUser(jid);
+            for (const [storedJid, messages] of Object.entries(store.messages || {})) {
+                if (jidNormalizedUser(storedJid) !== normalizedJid || !Array.isArray(messages)) continue;
+                const match = messages.find(candidate => candidate?.key?.id === id);
+                if (match) return match;
+            }
+            return null;
+        };
         socketConnectionState = 'connecting';
         socketStateChangedAt = Date.now();
         XeonBotInc.ev.on('creds.update', saveCreds);

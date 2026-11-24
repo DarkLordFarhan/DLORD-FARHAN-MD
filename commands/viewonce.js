@@ -75,22 +75,22 @@ function getQuotedContext(message) {
     return search(content);
 }
 
-function extractMedia(message, depth = 0) {
+function extractMedia(message, depth = 0, requireViewOnce = true) {
     if (!message || typeof message !== 'object' || depth > 15) return null;
     const { content, viewOnce } = unwrapViewOnce(message);
-    if (content?.imageMessage && (viewOnce || content.imageMessage.viewOnce)) {
+    if (content?.imageMessage && (!requireViewOnce || viewOnce || content.imageMessage.viewOnce)) {
         return { type: 'image', media: content.imageMessage };
     }
-    if (content?.videoMessage && (viewOnce || content.videoMessage.viewOnce)) {
+    if (content?.videoMessage && (!requireViewOnce || viewOnce || content.videoMessage.viewOnce)) {
         return { type: 'video', media: content.videoMessage };
     }
-    if (content?.audioMessage && (viewOnce || content.audioMessage.viewOnce)) {
+    if (content?.audioMessage && (!requireViewOnce || viewOnce || content.audioMessage.viewOnce)) {
         return { type: 'audio', media: content.audioMessage };
     }
 
     for (const value of Object.values(content || {})) {
         if (value && typeof value === 'object') {
-            const found = extractMedia(value, depth + 1);
+            const found = extractMedia(value, depth + 1, requireViewOnce);
             if (found) return found;
         }
     }
@@ -224,7 +224,7 @@ async function viewOnceCommand(sock, chatId, message, options = {}) {
             return;
         }
 
-        const found = extractMedia(quotedMessage);
+        let found = extractMedia(quotedMessage);
         if (!found) {
             await sock.sendMessage(chatId, {
                 text: '❌ No view-once photo, video, or audio detected. Reply to the original media.'
@@ -232,11 +232,28 @@ async function viewOnceCommand(sock, chatId, message, options = {}) {
             return;
         }
 
+        // Quoted context often omits the encrypted media URL/directPath. Use the
+        // original upsert cached by lightweight_store, which retains the complete
+        // Baileys WAMessage and its original key for updateMediaMessage retries.
+        let quotedWAMessage = null;
+        if (context.stanzaId && typeof sock.loadMessage === 'function') {
+            const storedMessage = await Promise.resolve()
+                .then(() => sock.loadMessage(chatId, context.stanzaId))
+                .catch(() => null);
+            if (storedMessage?.key?.id === context.stanzaId && storedMessage.message) {
+                const storedMedia = extractMedia(storedMessage.message, 0, false);
+                if (storedMedia) {
+                    found = storedMedia;
+                    quotedWAMessage = storedMessage;
+                }
+            }
+        }
+
         const botId = sock.user?.id;
         if (!botId) throw new Error('Bot WhatsApp ID is unavailable');
         const ownerInbox = jidNormalizedUser(botId);
         console.log('[VV] Downloading:', found.type);
-        const quotedWAMessage = {
+        quotedWAMessage ||= {
             key: {
                 remoteJid: chatId,
                 id: context.stanzaId,
@@ -247,7 +264,15 @@ async function viewOnceCommand(sock, chatId, message, options = {}) {
             },
             message: quotedMessage
         };
-        const downloaded = await downloadMedia(sock, found.media, found.type, quotedWAMessage, options);
+        let downloaded;
+        try {
+            downloaded = await downloadMedia(sock, found.media, found.type, quotedWAMessage, options);
+        } catch (error) {
+            if (!found.media?.url && !found.media?.directPath && /No valid media URL or directPath/i.test(error?.message || '')) {
+                throw new Error('Baileys could not find a media source in the quoted message or bot cache. Keep the bot online when the view-once media arrives, then reply to that original message with .vv.');
+            }
+            throw error;
+        }
         tempDir = downloaded.tempDir;
         const originalCaption = found.media.caption;
 
