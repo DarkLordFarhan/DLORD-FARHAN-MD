@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const test = require('node:test');
 const Module = require('node:module');
+const { Readable } = require('node:stream');
 
 const mediaDownloader = require('../lib/media-downloader');
 
@@ -314,6 +315,55 @@ test('`.vv` privately sends linked-account view-once audio and reacts in the ori
     await assert.rejects(fs.access(recoveredAudio.filePath));
     assert.ok(sent.some(([recipient, payload]) => recipient === 'group@g.us' && payload.react?.text === '✅'));
     assert.ok(sent.some(([recipient, payload]) => recipient === 'group@g.us' && /Check your bot inbox/.test(payload.text || '')));
+});
+
+test('`.vv` uses Baileys downloadMediaMessage with the quoted key and media reupload callback', async () => {
+    let downloadArgs;
+    const delivered = [];
+    const sock = {
+        user: { id: '15551234567:42@s.whatsapp.net' },
+        updateMediaMessage: async quoted => quoted,
+        sendMessage: async (...args) => {
+            const image = args[1].image;
+            if (image?.url) delivered.push({ recipient: args[0], bytes: await fs.readFile(image.url) });
+        }
+    };
+    const message = {
+        key: { id: 'vv-command', fromMe: true, remoteJid: 'group@g.us' },
+        message: {
+            extendedTextMessage: {
+                text: '.vv',
+                contextInfo: {
+                    stanzaId: 'quoted-view-once-id',
+                    participant: '15551234567:7@s.whatsapp.net',
+                    quotedMessage: {
+                        viewOnceMessageV2: {
+                            message: { imageMessage: { mimetype: 'image/jpeg' } }
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    await viewonceCommand(sock, 'group@g.us', message, {
+        downloadMediaMessage: async (...args) => {
+            downloadArgs = args;
+            return Readable.from([Buffer.from('reuploaded-view-once-image')]);
+        }
+    });
+
+    assert.ok(downloadArgs, 'expected Baileys high-level downloader to be used');
+    assert.equal(downloadArgs[0].key.remoteJid, 'group@g.us');
+    assert.equal(downloadArgs[0].key.id, 'quoted-view-once-id');
+    assert.equal(downloadArgs[0].key.participant, '15551234567:7@s.whatsapp.net');
+    assert.equal(downloadArgs[0].key.fromMe, true);
+    assert.equal(downloadArgs[1], 'stream');
+    assert.equal(typeof downloadArgs[3].logger.info, 'function');
+    assert.equal(downloadArgs[3].reuploadRequest, sock.updateMediaMessage);
+    assert.equal(delivered.length, 1);
+    assert.equal(delivered[0].recipient, '15551234567@s.whatsapp.net');
+    assert.equal(delivered[0].bytes.toString(), 'reuploaded-view-once-image');
 });
 
 test('`.vv` refuses to copy view-once media authored by another sender', async () => {

@@ -6,6 +6,7 @@ const { Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { startLimitedOperation, withTimeout } = require('../lib/with-timeout');
 const {
+    downloadMediaMessage,
     downloadContentFromMessage,
     jidNormalizedUser
 } = require('@whiskeysockets/baileys');
@@ -96,7 +97,7 @@ function extractMedia(message, depth = 0) {
     return null;
 }
 
-async function downloadMedia(sock, media, type, options = {}) {
+async function downloadMedia(sock, media, type, targetMessage, options = {}) {
     return startLimitedOperation(
         pendingViewOnceDownloads,
         sock,
@@ -124,11 +125,37 @@ async function downloadMedia(sock, media, type, options = {}) {
             );
 
             try {
+                const highLevelDownload = options.downloadMediaMessage || downloadMediaMessage;
+                const lowLevelDownload = options.downloadContentFromMessage || downloadContentFromMessage;
+                const logger = sock.logger && typeof sock.logger.info === 'function'
+                    ? sock.logger
+                    : { info() {} };
+                const reuploadRequest = typeof sock.updateMediaMessage === 'function'
+                    ? sock.updateMediaMessage
+                    : undefined;
                 const streamTask = startLimitedOperation(
                     pendingViewOnceStreamStarts,
                     sock,
                     1,
-                    () => downloadContentFromMessage(media, type),
+                    async () => {
+                        if (typeof highLevelDownload === 'function') {
+                            try {
+                                return await highLevelDownload(
+                                    targetMessage,
+                                    'stream',
+                                    {},
+                                    { logger, reuploadRequest }
+                                );
+                            } catch (error) {
+                                if (typeof lowLevelDownload !== 'function') throw error;
+                                console.warn('[VV] Baileys message download failed; trying content-stream fallback:', error?.message || error);
+                            }
+                        }
+                        if (typeof lowLevelDownload !== 'function') {
+                            throw new Error('This Baileys build has no supported media download helper.');
+                        }
+                        return lowLevelDownload(media, type);
+                    },
                     'A previous view-once stream is still starting.'
                 );
                 let stream;
@@ -209,7 +236,18 @@ async function viewOnceCommand(sock, chatId, message, options = {}) {
         if (!botId) throw new Error('Bot WhatsApp ID is unavailable');
         const ownerInbox = jidNormalizedUser(botId);
         console.log('[VV] Downloading:', found.type);
-        const downloaded = await downloadMedia(sock, found.media, found.type, options);
+        const quotedWAMessage = {
+            key: {
+                remoteJid: chatId,
+                id: context.stanzaId,
+                ...(context.participant ? { participant: context.participant } : {}),
+                fromMe: context.participant
+                    ? isLinkedJid(sock, context.participant)
+                    : isLinkedJid(sock, chatId)
+            },
+            message: quotedMessage
+        };
+        const downloaded = await downloadMedia(sock, found.media, found.type, quotedWAMessage, options);
         tempDir = downloaded.tempDir;
         const originalCaption = found.media.caption;
 
