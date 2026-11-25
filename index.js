@@ -449,12 +449,17 @@ async function startXeonBotInc() {
                     if (Object.keys(mek.message)[0] === 'ephemeralMessage') {
                         mek.message = mek.message.ephemeralMessage.message;
                     }
+                    if (mek.key.remoteJid === 'status@broadcast') {
+                        // Live statuses arrive as notify upserts. Route them before
+                        // the append-command gate, which intentionally ignores history.
+                        if (chatUpdate?.type === 'notify') {
+                            void handleStatus(XeonBotInc, { messages: [mek] })
+                                .catch(error => console.error('[AUTOSTATUS] Status event failed:', error?.stack || error));
+                        }
+                        continue;
+                    }
                     if (!shouldProcessUpsertMessage(mek, chatUpdate?.type, Date.now(), XeonBotInc)) continue;
                     try {
-                        if (mek.key?.remoteJid === 'status@broadcast') {
-                            await handleStatus(XeonBotInc, { ...chatUpdate, messages: [mek] });
-                            continue;
-                        }
                         if (!XeonBotInc.public && !mek.key?.fromMe && chatUpdate.type === 'notify' && !mek.key?.remoteJid?.endsWith('@g.us')) {
                             continue;
                         }
@@ -618,8 +623,6 @@ async function startXeonBotInc() {
         });
 
         XeonBotInc.ev.on('group-participants.update', async (update) => { await handleGroupParticipantUpdate(XeonBotInc, update); });
-        XeonBotInc.ev.on('status.update', async (status) => { await handleStatus(XeonBotInc, status); });
-        XeonBotInc.ev.on('messages.reaction', async (status) => { await handleStatus(XeonBotInc, status); });
 
         return XeonBotInc;
     } catch (error) {

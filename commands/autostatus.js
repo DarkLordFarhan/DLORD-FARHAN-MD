@@ -221,43 +221,54 @@ async function reactToStatus(sock, statusKey, configOverride) {
     try {
         const config = configOverride || readAutoStatusConfig();
         if (!config.reactOn) return;
+        const statusAuthor = statusKey.participant || statusKey.participantPn;
+        if (statusKey.remoteJid !== 'status@broadcast' || !statusKey.id || !statusAuthor) {
+            throw new Error('Status key is missing its status author; cannot send a status reaction.');
+        }
 
-        await sock.relayMessage(
+        await sock.sendMessage(
             'status@broadcast',
             {
-                reactionMessage: {
+                react: {
+                    text: selectReactionEmoji(config),
                     key: {
                         remoteJid: 'status@broadcast',
                         id: statusKey.id,
-                        participant: statusKey.participant || statusKey.remoteJid,
+                        participant: statusAuthor,
                         fromMe: false
-                    },
-                    text: selectReactionEmoji(config)
+                    }
                 }
             },
-            {
-                messageId: statusKey.id,
-                statusJidList: [statusKey.remoteJid, statusKey.participant || statusKey.remoteJid]
-            }
+            { statusJidList: [statusAuthor] }
         );
     } catch (error) {
-        console.error('❌ Error reacting to status:', error.message);
+        console.error('❌ Error reacting to status:', error?.stack || error?.message || error);
+    }
+}
+
+async function markStatusAsRead(sock, statusKey) {
+    try {
+        await sock.readMessages([statusKey]);
+    } catch (error) {
+        if (error.message?.includes('rate-overlimit')) {
+            console.log('⚠️ Status-view rate limit reached; retrying once after a short delay.');
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            try {
+                await sock.readMessages([statusKey]);
+            } catch (retryError) {
+                console.error('❌ Could not mark status as viewed:', retryError?.message || retryError);
+            }
+        } else {
+            console.error('❌ Could not mark status as viewed:', error?.message || error);
+        }
     }
 }
 
 async function handleStatusKey(sock, statusKey, config) {
-    try {
-        if (config.enabled) await sock.readMessages([statusKey]);
-        if (config.reactOn) await reactToStatus(sock, statusKey, config);
-    } catch (error) {
-        if (config.enabled && error.message?.includes('rate-overlimit')) {
-            console.log('⚠️ Rate limit hit, waiting before retrying...');
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            await sock.readMessages([statusKey]);
-        } else {
-            throw error;
-        }
-    }
+    await Promise.all([
+        config.enabled ? markStatusAsRead(sock, statusKey) : Promise.resolve(),
+        config.reactOn ? reactToStatus(sock, statusKey, config) : Promise.resolve()
+    ]);
 }
 
 function getStatusKeys(status) {
@@ -266,7 +277,7 @@ function getStatusKeys(status) {
         status?.reaction?.key,
         ...(Array.isArray(status?.messages) ? status.messages.map(message => message?.key) : [])
     ];
-    return keys.filter(key => key?.remoteJid === 'status@broadcast' && key.id);
+    return keys.filter(key => key?.remoteJid === 'status@broadcast' && key.id && key.fromMe !== true);
 }
 
 async function drainStatusQueue(sock, queueState) {
@@ -280,6 +291,11 @@ async function drainStatusQueue(sock, queueState) {
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 const config = statusKey.configOverride || readAutoStatusConfig();
                 if (config.enabled || config.reactOn) {
+                    console.log('[AUTOSTATUS] Processing new status:', JSON.stringify({
+                        view: config.enabled,
+                        react: config.reactOn,
+                        authorAvailable: Boolean(statusKey.key.participant || statusKey.key.participantPn)
+                    }));
                     await handleStatusKey(sock, statusKey.key, config);
                 }
             } catch (error) {
