@@ -164,6 +164,7 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 *🎨 IMAGE & STICKER*
 • .blur <image>
 • .simage <reply to sticker>
+• .toimage <reply to sticker>
 • .sticker <reply to image>
 • .removebg
 • .remini

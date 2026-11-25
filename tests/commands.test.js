@@ -180,7 +180,7 @@ test('help sends the complete branded menu as bordered scrollable text', async (
         'font', 'metallic', 'ice', 'snow', 'impressive', 'matrix', 'light', 'neon',
         'devil', 'purple', 'thunder', 'leaves', '1917', 'arena', 'hacker',
         'sand', 'blackpink', 'glitch', 'fire', 'gif', 'gpt', 'gemini',
-        'imagine', 'dalle', 'flux', 'sora', 'vv', 'autostatus', 'git', 'github',
+        'imagine', 'dalle', 'flux', 'sora', 'vv', 'toimage', 'autostatus', 'git', 'github',
         'q', 'paranoia', 'wyr', 'qr', 'time', 'define', 'wame', 'getpp',
         'yts', 'groupstats', 'myactivity', 'add', 'resetwarn'
     ]) {
