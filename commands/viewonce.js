@@ -213,17 +213,6 @@ async function viewOnceCommand(sock, chatId, message, options = {}) {
             return;
         }
 
-        const quotedAuthor = context.participant;
-        const quotedFromLinkedAccount = quotedAuthor
-            ? isLinkedJid(sock, quotedAuthor)
-            : isLinkedJid(sock, chatId) && message.key?.fromMe === true;
-        if (!quotedFromLinkedAccount) {
-            await sock.sendMessage(chatId, {
-                text: 'For privacy, .vv only copies view-once media sent by the linked account. Ask the sender to resend it as normal media if they want you to keep a copy.'
-            }, { quoted: message });
-            return;
-        }
-
         let found = extractMedia(quotedMessage);
         if (!found) {
             await sock.sendMessage(chatId, {
@@ -247,6 +236,27 @@ async function viewOnceCommand(sock, chatId, message, options = {}) {
                     quotedWAMessage = storedMessage;
                 }
             }
+        }
+
+        // Verify ownership using the complete original WhatsApp message.
+        // In direct chats, quoted context may not contain a participant ID.
+        const quotedAuthor = context.participant;
+        const cachedOriginalFromLinkedAccount =
+            quotedWAMessage?.key?.fromMe === true;
+        const quotedAuthorIsLinked =
+            Boolean(quotedAuthor && isLinkedJid(sock, quotedAuthor));
+
+        const quotedFromLinkedAccount =
+            cachedOriginalFromLinkedAccount ||
+            quotedAuthorIsLinked ||
+            (!quotedWAMessage && !quotedAuthor &&
+             isLinkedJid(sock, chatId) && message.key?.fromMe === true);
+
+        if (!quotedFromLinkedAccount) {
+            await sock.sendMessage(chatId, {
+                text: 'For privacy, .vv only copies view-once media sent by the linked account. Ask the sender to resend it as normal media if they want you to keep a copy.'
+            }, { quoted: message });
+            return;
         }
 
         const botId = sock.user?.id;
