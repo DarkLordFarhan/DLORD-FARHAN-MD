@@ -9,6 +9,7 @@ const {
     autoStatusCommand,
     handleStatusUpdate,
     parseReactionEmojis,
+    readAutoStatusConfig,
     selectReactionEmoji,
     waitForStatusQueue
 } = require('../commands/autostatus');
@@ -52,6 +53,62 @@ test('`.autostatus emoji` saves, displays, and resets the selected reaction emoj
         await autoStatusCommand(sock, 'chat', message, ['emoji', 'reset'], filePath);
         saved = JSON.parse(fs.readFileSync(filePath, 'utf8'));
         assert.deepEqual(saved.reactEmojis, ['💚']);
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test('`.autostatus` saved view, reaction, and emoji changes apply to the next live status immediately', async () => {
+    const { directory, filePath } = makeTempConfig();
+    const sent = [];
+    const readCalls = [];
+    const sock = {
+        sendMessage: async (...args) => sent.push(args),
+        readMessages: async keys => readCalls.push(keys)
+    };
+    const ownerJid = `${settings.ownerNumber}@s.whatsapp.net`;
+    const message = { key: { fromMe: true, remoteJid: ownerJid } };
+    const statusKey = {
+        remoteJid: 'status@broadcast',
+        id: 'realtime-status-id',
+        participant: 'contact@s.whatsapp.net',
+        fromMe: false
+    };
+    const liveUpdate = () => handleStatusUpdate(
+        sock,
+        { messages: [{ key: statusKey }] },
+        undefined,
+        { configPath: filePath }
+    );
+
+    try {
+        await autoStatusCommand(sock, 'chat', message, ['on'], filePath);
+        assert.equal(readAutoStatusConfig(filePath).enabled, true);
+        const start = Date.now();
+        liveUpdate();
+        await waitForStatusQueue(sock);
+        assert.ok(Date.now() - start < 500, 'status viewing should not wait on an artificial pacing delay');
+        assert.equal(readCalls.length, 1, 'enabling auto-view should affect the very next status event');
+
+        await autoStatusCommand(sock, 'chat', message, ['react', 'on'], filePath);
+        await autoStatusCommand(sock, 'chat', message, ['emoji', '❤️', '🔥'], filePath);
+        const reacted = [];
+        sock.sendMessage = async (...args) => reacted.push(args);
+        statusKey.id = 'realtime-reaction-id';
+        liveUpdate();
+        await waitForStatusQueue(sock);
+        const reactionPayloads = () => reacted.filter(([, payload]) => payload?.react);
+        assert.equal(reactionPayloads().length, 1, 'enabling status reactions should affect the very next status event');
+        assert.ok(['❤️', '🔥'].includes(reactionPayloads()[0][1].react.text));
+        assert.equal(readCalls.length, 2);
+
+        await autoStatusCommand(sock, 'chat', message, ['off'], filePath);
+        await autoStatusCommand(sock, 'chat', message, ['react', 'off'], filePath);
+        statusKey.id = 'realtime-disabled-id';
+        liveUpdate();
+        await waitForStatusQueue(sock);
+        assert.equal(reactionPayloads().length, 1, 'disabling both actions should stop work on the next status event');
+        assert.equal(readCalls.length, 2);
     } finally {
         fs.rmSync(directory, { recursive: true, force: true });
     }
@@ -124,6 +181,26 @@ test('auto-view sends a read receipt for a live status upsert', async () => {
 
     assert.deepEqual(readCalls, [[statusKey]]);
     assert.deepEqual(sent, []);
+});
+
+test('auto-view maps participantPn to participant for Baileys read receipts', async () => {
+    const readCalls = [];
+    const sock = { readMessages: async keys => readCalls.push(keys) };
+    const statusKey = {
+        remoteJid: 'status@broadcast',
+        id: 'pn-only-status-id',
+        participantPn: 'contact@s.whatsapp.net',
+        fromMe: false
+    };
+
+    handleStatusUpdate(sock, { messages: [{ key: statusKey }] }, {
+        enabled: true,
+        reactOn: false,
+        reactEmojis: ['💚']
+    });
+    await waitForStatusQueue(sock);
+
+    assert.deepEqual(readCalls, [[{ ...statusKey, participant: 'contact@s.whatsapp.net' }]]);
 });
 
 test('a failed status-view receipt does not prevent the configured reaction', async () => {

@@ -7,6 +7,7 @@ const MAX_REACTION_EMOJIS = 10;
 const MAX_PENDING_STATUS_EVENTS = 50;
 const MAX_STATUS_DEDUPE_ENTRIES = 500;
 const STATUS_DEDUPE_TTL_MS = 5 * 60 * 1000;
+const STATUS_EVENT_CONCURRENCY = 3;
 const emojiSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 const EMOJI_COMPONENTS_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\uFE0E\uFE0F\u200D\u20E3#*0-9]+$/u;
 const EMOJI_BASE = /[\p{Extended_Pictographic}\p{Regional_Indicator}]/u;
@@ -70,7 +71,15 @@ function getReactionEmojis(config = {}) {
 }
 
 function readAutoStatusConfig(filePath = configPath) {
-    const saved = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    let saved;
+    try {
+        saved = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (error) {
+        if (error?.code === 'ENOENT' || error instanceof SyntaxError) {
+            return { enabled: false, reactOn: false, reactEmojis: [...DEFAULT_REACTION_EMOJIS] };
+        }
+        throw error;
+    }
     if (!saved || typeof saved !== 'object' || Array.isArray(saved)) {
         throw new Error('Auto status configuration is invalid.');
     }
@@ -88,7 +97,10 @@ function writeAutoStatusConfig(config, filePath = configPath) {
         ...config,
         reactEmojis: getReactionEmojis(config)
     };
-    fs.writeFileSync(filePath, JSON.stringify(updated, null, 2));
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temporaryPath, JSON.stringify(updated, null, 2));
+    fs.renameSync(temporaryPath, filePath);
 }
 
 function selectReactionEmoji(config = {}, random = Math.random) {
@@ -170,7 +182,7 @@ async function autoStatusCommand(sock, chatId, msg, args, filePath = configPath)
             config.enabled = true;
             writeAutoStatusConfig(config, filePath);
             await sock.sendMessage(chatId, {
-                text: '✅ Auto status view has been enabled!\nBot will now automatically view contact statuses.',
+                text: '✅ Auto status view has been enabled!\nNew contact statuses will be marked viewed when they arrive. Turn on WhatsApp Read Receipts if you want contacts to see your view receipts.',
                 ...channelInfo
             });
         } else if (command === 'off') {
@@ -247,14 +259,17 @@ async function reactToStatus(sock, statusKey, configOverride) {
 }
 
 async function markStatusAsRead(sock, statusKey) {
+    const receiptKey = statusKey.participant || !statusKey.participantPn
+        ? statusKey
+        : { ...statusKey, participant: statusKey.participantPn };
     try {
-        await sock.readMessages([statusKey]);
+        await sock.readMessages([receiptKey]);
     } catch (error) {
         if (error.message?.includes('rate-overlimit')) {
             console.log('⚠️ Status-view rate limit reached; retrying once after a short delay.');
             await new Promise(resolve => setTimeout(resolve, 2000));
             try {
-                await sock.readMessages([statusKey]);
+                await sock.readMessages([receiptKey]);
             } catch (retryError) {
                 console.error('❌ Could not mark status as viewed:', retryError?.message || retryError);
             }
@@ -285,22 +300,22 @@ async function drainStatusQueue(sock, queueState) {
     queueState.running = true;
     queueState.worker = (async () => {
         while (queueState.pending.length) {
-            const statusKey = queueState.pending.shift();
-            try {
-                // Keep status actions paced, but never make the WhatsApp upsert handler wait.
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                const config = statusKey.configOverride || readAutoStatusConfig();
-                if (config.enabled || config.reactOn) {
-                    console.log('[AUTOSTATUS] Processing new status:', JSON.stringify({
-                        view: config.enabled,
-                        react: config.reactOn,
-                        authorAvailable: Boolean(statusKey.key.participant || statusKey.key.participantPn)
-                    }));
-                    await handleStatusKey(sock, statusKey.key, config);
+            const batch = queueState.pending.splice(0, STATUS_EVENT_CONCURRENCY);
+            await Promise.all(batch.map(async statusKey => {
+                try {
+                    const config = statusKey.configOverride || readAutoStatusConfig(statusKey.configPath || configPath);
+                    if (config.enabled || config.reactOn) {
+                        console.log('[AUTOSTATUS] Processing new status:', JSON.stringify({
+                            view: config.enabled,
+                            react: config.reactOn,
+                            authorAvailable: Boolean(statusKey.key.participant || statusKey.key.participantPn)
+                        }));
+                        await handleStatusKey(sock, statusKey.key, config);
+                    }
+                } catch (error) {
+                    console.error('❌ Error in auto status processing:', error?.message || error);
                 }
-            } catch (error) {
-                console.error('❌ Error in auto status view:', error?.message || error);
-            }
+            }));
         }
     })().finally(() => {
         queueState.running = false;
@@ -310,7 +325,7 @@ async function drainStatusQueue(sock, queueState) {
     return queueState.worker;
 }
 
-function handleStatusUpdate(sock, status, configOverride) {
+function handleStatusUpdate(sock, status, configOverride, options = {}) {
     if (!sock || (typeof sock !== 'object' && typeof sock !== 'function')) return;
     const keys = getStatusKeys(status);
     if (!keys.length) return;
@@ -327,7 +342,7 @@ function handleStatusUpdate(sock, status, configOverride) {
     }
 
     for (const key of keys) {
-        const dedupeKey = `${key.id}|${key.participant || key.remoteJid}`;
+        const dedupeKey = `${key.id}|${key.participant || key.participantPn || key.remoteJid}`;
         if (queueState.seen.has(dedupeKey)) continue;
 
         queueState.seen.set(dedupeKey, now + STATUS_DEDUPE_TTL_MS);
@@ -341,7 +356,7 @@ function handleStatusUpdate(sock, status, configOverride) {
             queueState.seen.delete(droppedKey);
             console.warn('[AUTOSTATUS] Queue full; dropping the oldest pending status event.');
         }
-        queueState.pending.push({ key, configOverride });
+        queueState.pending.push({ key, configOverride, configPath: options.configPath });
     }
 
     if (queueState.pending.length && !queueState.running) {
@@ -357,6 +372,8 @@ async function waitForStatusQueue(sock) {
 module.exports = {
     autoStatusCommand,
     handleStatusUpdate,
+    readAutoStatusConfig,
+    writeAutoStatusConfig,
     parseReactionEmojis,
     selectReactionEmoji,
     reactToStatus,
