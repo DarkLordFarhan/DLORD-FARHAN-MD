@@ -84,7 +84,7 @@ test('definition command formats a live-style Dictionary API response and handle
     assert.match(sent[1][1].text, /No English definition found/);
 });
 
-test('YouTube search returns only validated HTTPS YouTube links', async () => {
+test('`.yts` downloads and sends a validated YouTube video instead of returning links', async () => {
     const sent = [];
     await ytsCommand(
         { sendMessage: async (...args) => sent.push(args) },
@@ -92,13 +92,62 @@ test('YouTube search returns only validated HTTPS YouTube links', async () => {
         { key: { id: 'yts-test' } },
         'test query',
         async query => ({ videos: [
-            { title: 'Valid result', url: 'https://www.youtube.com/watch?v=abc', timestamp: '3:12', views: 1200 },
+            { title: 'Valid result', url: 'https://www.youtube.com/watch?v=60ItHLz5WEA', timestamp: '3:12', views: 1200 },
             { title: 'Invalid result', url: 'https://bad.example/video' },
-            { title: 'Insecure result', url: 'http://youtu.be/abc' }
+            { title: 'Insecure result', url: 'http://youtu.be/60ItHLz5WEA' }
+        ] }),
+        {
+            apiDownloader: async url => {
+                assert.match(url, /60ItHLz5WEA/);
+                return { buffer: Buffer.from('mp4-video'), mimetype: 'video/mp4', extension: 'mp4' };
+            }
+        }
+    );
+    assert.match(sent[0][1].text, /Downloading the best available video/);
+    assert.equal(sent[1][1].video.toString(), 'mp4-video');
+    assert.equal(sent[1][1].mimetype, 'video/mp4');
+    assert.match(sent[1][1].fileName, /Valid result\.mp4/);
+    assert.doesNotMatch(JSON.stringify(sent[1][1]), /youtube\.com\/watch/);
+});
+
+test('`.yts` falls back to the existing downloader when the API fails', async () => {
+    const sent = [];
+    const fallbackAttempts = [];
+    await ytsCommand(
+        { sendMessage: async (...args) => sent.push(args) },
+        'chat',
+        {},
+        'test query',
+        async () => ({ videos: [
+            { title: 'Fallback video', url: 'https://www.youtube.com/watch?v=60ItHLz5WEA' }
+        ] }),
+        {
+            apiDownloader: async () => { throw new Error('API unavailable'); },
+            downloader: async (url, options) => {
+                fallbackAttempts.push({ url, options });
+                return [{ buffer: Buffer.from('fallback-video'), mimetype: 'video/mp4', extension: 'mp4' }];
+            }
+        }
+    );
+
+    assert.equal(fallbackAttempts.length, 1);
+    assert.equal(fallbackAttempts[0].options.kind, 'video');
+    assert.equal(sent[1][1].video.toString(), 'fallback-video');
+});
+
+test('`.yts` reports when no valid YouTube search results are found', async () => {
+    const sent = [];
+    await ytsCommand(
+        { sendMessage: async (...args) => sent.push(args) },
+        'chat',
+        {},
+        'test query',
+        async () => ({ videos: [
+            { title: 'Invalid result', url: 'https://bad.example/video' },
+            { title: 'Insecure result', url: 'http://youtu.be/60ItHLz5WEA' }
         ] })
     );
-    assert.match(sent[0][1].text, /Valid result/);
-    assert.doesNotMatch(sent[0][1].text, /Invalid result|Insecure result/);
+    assert.match(sent[0][1].text, /No YouTube results found/);
 });
 
 test('YouTube search returns control after a stalled provider request', async () => {
