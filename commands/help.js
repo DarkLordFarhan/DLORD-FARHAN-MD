@@ -1,7 +1,7 @@
 const settings = require('../settings');
 
 const MENU_SECTION_TITLES = new Set([
-    '🌐 GENERAL', '👮 ADMIN', '👑 OWNER', '🎨 IMAGE & STICKER', '✨ TEXT EFFECTS',
+    '🌐 GENERAL', '👥 GROUP', '👑 OWNER', '🎨 IMAGE & STICKER', '✨ TEXT EFFECTS',
     '🖼️ PIES', '🎮 GAMES', '🤖 AI', '🎯 FUN', '📥 DOWNLOADS', '💻 GITHUB'
 ]);
 
@@ -102,10 +102,6 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 • .attp <text>
 • .lyrics <song_title>
 • .8ball <question>
-• .groupinfo
-• .groupstats
-• .myactivity
-• .staff / .admins
 • .vv (reply to view-once photo/video/audio)
   Note: .vv is owner-only and handles only view-once media sent by the linked account
 • .trt <text> <lang>
@@ -113,8 +109,17 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 • .jid
 • .url
 
-*👮 ADMIN*
+*👥 GROUP*
+• .groupinfo
+• .groupstats
+• .myactivity
+• .staff / .admins / .listadmin
+• .members
+• .rules [text / off]
+• .grouplink
+• .jid / .groupjid
 • .ban @user
+• .unban @user
 • .promote @user
 • .demote @user
 • .mute <minutes>
@@ -125,21 +130,22 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 • .warn @user
 • .resetwarn @user (admin)
 • .add <phone number>
-• .antilink
-• .antibadword
-• .clear
 • .tag <message>
 • .tagall
 • .tagnotadmin
 • .hidetag <message>
+• .antilink
+• .antibadword
+• .antitag <on/off>
 • .chatbot
 • .resetlink
-• .antitag <on/off>
 • .welcome <on/off>
 • .goodbye <on/off>
 • .setgdesc <description>
 • .setgname <new name>
 • .setgpp (reply to image)
+• .clear
+• .delete / .del
 
 *👑 OWNER*
 • .mode <public/private>
@@ -155,6 +161,7 @@ Owner: *${settings.botOwner || 'Farhan II'}*
 • .autostatus react on/off
 • .autostatus emoji <emojis>
 • .autotyping <on/off>
+• .autorecording <on/off>
 • .autoread <on/off>
 • .anticall <on/off>
 • .pmblocker <on/off/status>

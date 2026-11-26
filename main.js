@@ -39,6 +39,7 @@ const isOwnerOrSudo = require('./lib/isOwner');
 const isLinkedOwner = require('./lib/isLinkedOwner');
 const shouldProcessUpsertMessage = require('./lib/should-process-upsert-message');
 const { autotypingCommand, isAutotypingEnabled, handleAutotypingForMessage, handleAutotypingForCommand, showTypingAfterCommand } = require('./commands/autotyping');
+const { autorecordingCommand, handleAutoRecordingForMessage } = require('./commands/autorecording');
 const { autoreadCommand, isAutoreadEnabled, handleAutoread } = require('./commands/autoread');
 
 // Command imports
@@ -153,6 +154,9 @@ const { myActivityCommand } = require('./commands/myactivity');
 const { getProfilePictureCommand } = require('./commands/getpp');
 const { addCommand } = require('./commands/add');
 const { resetWarnCommand } = require('./commands/resetwarn');
+const membersCommand = require('./commands/members');
+const { groupRulesCommand } = require('./commands/grouprules');
+const groupLinkCommand = require('./commands/grouplink');
 const removebgCommand = require('./commands/removebg');
 const { reminiCommand } = require('./commands/remini');
 const { igsCommand } = require('./commands/igs');
@@ -350,8 +354,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         // Then check for command prefix
         if (!userMessage.startsWith('.')) {
-            // Show typing indicator if autotyping is enabled
-            await handleAutotypingForMessage(sock, chatId, userMessage);
+            // Prefer the recording indicator when enabled; otherwise preserve autotyping behavior.
+            const recordingShown = await handleAutoRecordingForMessage(sock, chatId, userMessage);
+            if (!recordingShown) await handleAutotypingForMessage(sock, chatId, userMessage);
 
             if (isGroup) {
                 // Always run moderation features (antitag) regardless of mode
@@ -377,7 +382,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const isBotAdminRequiredCommand = botAdminRequiredCommands.some(cmd => userMessage.startsWith(cmd));
 
         // List of owner commands
-        const ownerCommands = ['.mode', '.autostatus', '.antidelete', '.cleartmp', '.setpp', '.clearsession', '.areact', '.autoreact', '.autotyping', '.autoread', '.pmblocker'];
+        const ownerCommands = ['.mode', '.autostatus', '.antidelete', '.cleartmp', '.setpp', '.clearsession', '.areact', '.autoreact', '.autotyping', '.autorecording', '.autoread', '.pmblocker'];
         const isOwnerCommand = ownerCommands.some(cmd => userMessage.startsWith(cmd));
 
         let isSenderAdmin = false;
@@ -896,6 +901,20 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 await groupInfoCommand(sock, chatId, message);
                 break;
+            case /^\.members(?:\s|$)/.test(userMessage):
+                await membersCommand(sock, chatId, message);
+                commandExecuted = true;
+                break;
+            case /^\.rules(?:\s|$)/.test(userMessage): {
+                const rulesText = rawText.replace(/^\.rules\b/i, '').trim();
+                await groupRulesCommand(sock, chatId, senderId, message, rulesText);
+                commandExecuted = true;
+                break;
+            }
+            case userMessage === '.grouplink':
+                await groupLinkCommand(sock, chatId, senderId, message);
+                commandExecuted = true;
+                break;
             case userMessage === '.resetlink' || userMessage === '.revoke' || userMessage === '.anularlink':
                 if (!isGroup) {
                     await sock.sendMessage(chatId, { text: 'This command can only be used in groups!', ...channelInfo }, { quoted: message });
@@ -1071,10 +1090,14 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             case userMessage.startsWith('.imagine') || userMessage.startsWith('.flux') || userMessage.startsWith('.dalle'): await imagineCommand(sock, chatId, message);
                 break;
-            case userMessage === '.jid': await groupJidCommand(sock, chatId, message);
+            case userMessage === '.jid' || userMessage === '.groupjid': await groupJidCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.autotyping'):
                 await autotypingCommand(sock, chatId, message);
+                commandExecuted = true;
+                break;
+            case /^\.autorecording(?:\s|$)/.test(userMessage):
+                await autorecordingCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
             case userMessage.startsWith('.autoread'):

@@ -169,6 +169,8 @@ test('help sends the complete branded menu as bordered scrollable text', async (
     assert.ok(menuText.includes('╔═══════════════╗'));
     assert.ok(menuText.includes('║ 🔹 *.metallic*'));
     assert.ok(menuText.includes('║ 🔹 *.github*'));
+    assert.ok(menuText.includes('*👥 GROUP*'));
+    assert.ok(menuText.includes('║ 🔹 *.autorecording*'));
     assert.ok(menuText.includes('owner-only'), 'the full text menu should retain the .vv notice');
     assert.ok(menuText.includes('AI Horde'), 'the full text menu should retain AI-service notes');
 
@@ -182,7 +184,8 @@ test('help sends the complete branded menu as bordered scrollable text', async (
         'sand', 'blackpink', 'glitch', 'fire', 'gif', 'gpt', 'gemini',
         'imagine', 'dalle', 'flux', 'sora', 'vv', 'toimage', 'autostatus', 'git', 'github',
         'q', 'paranoia', 'wyr', 'qr', 'time', 'define', 'wame', 'getpp',
-        'yts', 'groupstats', 'myactivity', 'add', 'resetwarn'
+        'yts', 'groupinfo', 'groupstats', 'myactivity', 'members', 'rules', 'grouplink',
+        'groupjid', 'add', 'resetwarn', 'autorecording'
     ]) {
         assert.ok(listedCommands.includes(command), `expected bordered text menu to include ${command}`);
     }
